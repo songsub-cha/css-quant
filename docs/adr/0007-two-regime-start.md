@@ -17,8 +17,8 @@ MVP는 **NORMAL / DEFENSIVE 2-레짐**으로 시작한다. 4-레짐(Risk-On/Neut
 
 ## 결과
 
-- 레짐 판정은 결정론적 규칙으로 매 거래일 1회 수행한다: `KOSPI 종가 > 200일 MA AND (VKOSPI < 25 또는
-  20일 변동성 < 1.5%)`이면 NORMAL, 아니면 DEFENSIVE (A6.2).
+- 레짐 판정은 결정론적 규칙으로 매 거래일 1회 수행한다: `KOSPI 종가 > 200일 MA AND (VKOSPI < 25,
+  없으면 20일 변동성 < 1.5%)`이면 NORMAL, 아니면 DEFENSIVE (A6.2).
 - DEFENSIVE → NORMAL 전환은 히스테리시스(연속 3거래일 조건 만족)를 적용해 안전 우선으로 설계하고,
   NORMAL → DEFENSIVE는 즉시 전환한다. 레짐 기록이 없는 콜드 스타트는 DEFENSIVE로 시작한다.
 - 이 최소 복잡도는 **검증 가능성**을 우선한 선택이다 — 레짐 4분화, 섹터 중립화, 팩터 추가는 모두
