@@ -18,5 +18,25 @@ src/workers     Arq 태스크 (크론 + 잡)
 
 ## 현재 상태
 
-디렉터리 placeholder만 존재한다. `pyproject.toml`, `/health` 엔드포인트, Alembic 초기 마이그레이션,
-`LLMClient` 스텁, Dockerfile 등 실제 부트스트랩은 후속 이슈(Phase 0의 나머지 조각)에서 다룬다.
+최소 부트스트랩 완료: `pyproject.toml`(uv, Python 3.12), 레이어드 디렉터리 골격(`src/domain`,
+`adapters`, `services`, `api/v1`, `engine`, `workers`), `GET /health`(liveness만),
+`LLMClient` Protocol + `FakeLLMClient`(ADR 0004 fake-by-default).
+
+Alembic 마이그레이션, SQLAlchemy 모델, Redis/Arq, Dockerfile, CI, import-linter, 실 LLM
+프로바이더(`OpenAILLMClient`/`AnthropicLLMClient`)는 후속 이슈에서 다룬다.
+
+### 실행
+
+```bash
+cd apps/api
+uv sync
+uv run uvicorn src.main:app --reload
+```
+
+`GET /health` → `{"status": "ok"}`
+
+### 테스트
+
+```bash
+uv run pytest
+```
