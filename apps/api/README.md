@@ -16,14 +16,27 @@ src/workers     Arq 태스크 (크론 + 잡)
 
 요청 흐름: `router → service → adapter/domain`. DI는 `api/deps.py`.
 
+`src/config.py`는 이 레이어 그래프에 속하지 않는 leaf 설정 모듈이다 — domain/adapters/services/
+api-v1/engine/workers 어느 레이어도 이를 import하지 않으며, DI 합성 지점인 `src/api/deps.py`와
+레이어 그래프 밖에 있는 `alembic/env.py`(SoT B5.5) 두 곳에서만 직접 import한다. `src/adapters/db.py`는
+`database_url` 문자열을 파라미터로만 받아 엔진을 만들므로 "adapters는 domain만 import"(B2) 규칙을
+어기지 않는다.
+
 ## 현재 상태
 
 최소 부트스트랩 완료: `pyproject.toml`(uv, Python 3.12), 레이어드 디렉터리 골격(`src/domain`,
 `adapters`, `services`, `api/v1`, `engine`, `workers`), `GET /health`(liveness만),
 `LLMClient` Protocol + `FakeLLMClient`(ADR 0004 fake-by-default).
 
-Alembic 마이그레이션, SQLAlchemy 모델, Redis/Arq, Dockerfile, CI, import-linter, 실 LLM
-프로바이더(`OpenAILLMClient`/`AnthropicLLMClient`)는 후속 이슈에서 다룬다.
+Alembic 배선 완료: `alembic.ini` + `alembic/env.py`가 `src.config.Settings().database_url`(psycopg 3로
+자동 재작성, SoT B5.1/ADR 0005)로 앱과 동일한 비동기 SQLAlchemy 엔진(`src/adapters/db.get_engine`)을
+구성해 마이그레이션을 실행한다. 최초 리비전(`alembic/versions/fe4de3edb1d3_initial_wiring.py`)은
+스키마 변경이 없는 빈 리비전으로, 배선 자체만 검증한다. enum 컬럼을 다루는 마이그레이션 관례
+(`postgresql.ENUM(create_type=False)` + 멱등 `DO` 블록, SoT B5.3)는 `alembic/README`에 문서화되어
+있다 — 실제 사용은 도메인 모델이 추가되는 후속 이슈에서.
+
+SQLAlchemy 모델(도메인 테이블), Redis/Arq, Dockerfile, CI, import-linter, 실 LLM 프로바이더
+(`OpenAILLMClient`/`AnthropicLLMClient`)는 후속 이슈에서 다룬다.
 
 ### 실행
 
@@ -40,3 +53,25 @@ uv run uvicorn src.main:app --reload
 ```bash
 uv run pytest
 ```
+
+### 로컬 마이그레이션 실행
+
+`DATABASE_URL`은 `.env.example`을 복사한 `.env`(또는 환경변수)로 지정한다. 기본값은
+`postgresql+psycopg://postgres:postgres@localhost:5432/quantpilot`.
+
+컨테이너가 없는 환경에서는 임시 PostgreSQL 하나를 띄워 확인한다:
+
+```bash
+docker run --rm -d --name quantpilot-pg-tmp \
+  -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=quantpilot \
+  -p 5432:5432 postgres:16-alpine
+
+cd apps/api
+cp .env.example .env   # 필요시 DATABASE_URL 조정
+uv run alembic upgrade head   # alembic_version 테이블 생성 확인
+
+docker stop quantpilot-pg-tmp
+```
+
+compose 스택(`postgres` 서비스 + prod 이미지 기동 시 자동 `alembic upgrade head`)은 후속 이슈(Docker
+Compose)에서 배선한다 — 이번 이슈는 Alembic 자체 배선까지가 범위다.

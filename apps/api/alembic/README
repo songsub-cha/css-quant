@@ -1,0 +1,92 @@
+Generic single-database configuration.
+
+## Wiring
+
+`env.py` builds its connection from `src.config.Settings().database_url`
+(`.env` / `DATABASE_URL`), which is already normalized to the psycopg 3
+driver (`postgresql+psycopg://`) — see SoT B5.1 / ADR 0005. Engine
+construction goes through `src.adapters.db.get_engine()`, the same factory
+`src/api/deps.py` uses, so there is one code path that calls
+`create_async_engine` for this app.
+
+Run migrations from `apps/api/`:
+
+```bash
+uv run alembic upgrade head
+```
+
+## Enum columns (SoT B5.3 / ADR 0005)
+
+Every migration that adds or touches a Postgres enum type must follow this
+pattern — deviating from it has broken migrations in the predecessor repo:
+
+1. **Import the dialect-specific type**, not the generic one:
+
+   ```python
+   from sqlalchemy.dialects import postgresql
+   ```
+
+   `sa.Enum(..., create_type=False)` loses the `create_type=False` flag
+   when compiled through the psycopg dialect, so `sqlalchemy.dialects.
+   postgresql.ENUM(..., create_type=False)` must be used instead — this is
+   the actual, reproduced failure mode ADR 0005 documents, not a
+   theoretical one.
+
+2. **Create the Postgres `TYPE` yourself, in a `DO` block, so it's
+   idempotent** (safe to run against a DB where a previous partial
+   migration attempt already created the type):
+
+   ```python
+   from alembic import op
+   from sqlalchemy.dialects import postgresql
+
+   order_status = postgresql.ENUM(
+       "created",
+       "submitted",
+       "partially_filled",
+       "filled",
+       "cancelled",
+       "rejected",
+       "expired",
+       name="order_status",
+       create_type=False,
+   )
+
+
+   def upgrade() -> None:
+       op.execute(
+           """
+           DO $$
+           BEGIN
+               IF NOT EXISTS (
+                   SELECT 1 FROM pg_type WHERE typname = 'order_status'
+               ) THEN
+                   CREATE TYPE order_status AS ENUM (
+                       'created', 'submitted', 'partially_filled',
+                       'filled', 'cancelled', 'rejected', 'expired'
+                   );
+               END IF;
+           END
+           $$;
+           """
+       )
+       op.add_column(
+           "orders",
+           sa.Column("status", order_status, nullable=False),
+       )
+
+
+   def downgrade() -> None:
+       op.drop_column("orders", "status")
+       op.execute("DROP TYPE IF EXISTS order_status")
+   ```
+
+3. **On the ORM model side** (not this migration, but the SQLAlchemy model
+   that maps to the column), every `SAEnum` column must set
+   `values_callable=lambda e: [x.value for x in e]` — Python `StrEnum`
+   members are upper-case by convention but the values stored in Postgres
+   are lower-case, and without `values_callable` SQLAlchemy inserts the
+   member *name* instead of its *value* (SoT B5.2).
+
+No enum columns exist yet in this repo (first domain models land in a
+later issue) — this section documents the convention ahead of that need.
