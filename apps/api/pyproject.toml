@@ -18,6 +18,9 @@ dependencies = [
 dev = [
     "pytest>=8.3",
     "httpx>=0.27",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "import-linter>=2.1",
 ]
 
 [build-system]
@@ -26,3 +29,90 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests"]
+
+# SoT B2 — layered architecture, mechanically enforced (issue #11).
+# Layers: domain (independent) -> adapters -> services -> api/v1, with
+# engine and workers sitting alongside services. `config.py` and
+# `api/deps.py` are the two composition leaves the layers converge on and
+# are intentionally left out of every contract below (see src/config.py
+# docstring) rather than papered over with `ignore_imports`.
+[tool.importlinter]
+root_packages = ["src"]
+
+[[tool.importlinter.contracts]]
+name = "domain has no dependencies on other layers"
+type = "forbidden"
+source_modules = ["src.domain"]
+forbidden_modules = [
+    "src.adapters",
+    "src.services",
+    "src.api",
+    "src.engine",
+    "src.workers",
+]
+
+[[tool.importlinter.contracts]]
+name = "adapters may only depend on domain"
+type = "forbidden"
+source_modules = ["src.adapters"]
+forbidden_modules = [
+    "src.services",
+    "src.api",
+    "src.engine",
+    "src.workers",
+]
+
+[[tool.importlinter.contracts]]
+name = "services may only depend on domain and adapters"
+type = "forbidden"
+source_modules = ["src.services"]
+forbidden_modules = [
+    "src.api",
+    "src.engine",
+    "src.workers",
+]
+
+[[tool.importlinter.contracts]]
+name = "api/v1 may not import adapters/engine/workers directly"
+type = "forbidden"
+source_modules = ["src.api.v1"]
+forbidden_modules = [
+    "src.adapters",
+    "src.engine",
+    "src.workers",
+]
+# Direct-only ("직접 import 금지" — SoT B2): api/v1 legitimately reaches
+# adapters *indirectly* through services (router -> service -> adapter,
+# SoT B1) and through api/deps (the DI composition root). Without this,
+# the default transitive check would break the moment any router calls a
+# service that touches an adapter — the normal, intended path.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "engine may only depend on domain and adapters"
+type = "forbidden"
+source_modules = ["src.engine"]
+forbidden_modules = [
+    "src.api",
+    "src.workers",
+]
+
+[[tool.importlinter.contracts]]
+name = "workers may depend on domain/adapters/services but never api"
+type = "forbidden"
+source_modules = ["src.workers"]
+forbidden_modules = [
+    "src.api",
+]
