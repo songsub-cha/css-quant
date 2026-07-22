@@ -1,6 +1,16 @@
 import pytest
+from arq.worker import create_worker
 
-from src.workers.settings import build_redis_settings
+from src.workers.settings import WorkerSettings, build_redis_settings
+
+
+def test_worker_settings_boots_without_redis() -> None:
+    """WorkerSettings must carry at least one function/cron_job or
+    arq.worker.Worker.__init__ raises RuntimeError before ever touching
+    Redis (functions=[] previously crashed the worker on boot)."""
+    worker = create_worker(WorkerSettings)
+
+    assert "healthcheck" in worker.functions
 
 
 @pytest.mark.parametrize(
