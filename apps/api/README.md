@@ -35,8 +35,15 @@ Alembic 배선 완료: `alembic.ini` + `alembic/env.py`가 `src.config.Settings(
 (`postgresql.ENUM(create_type=False)` + 멱등 `DO` 블록, SoT B5.3)는 `alembic/README`에 문서화되어
 있다 — 실제 사용은 도메인 모델이 추가되는 후속 이슈에서.
 
-SQLAlchemy 모델(도메인 테이블), Redis/Arq, Dockerfile, CI, import-linter, 실 LLM 프로바이더
-(`OpenAILLMClient`/`AnthropicLLMClient`)는 후속 이슈에서 다룬다.
+Arq worker 배선 완료: `src/workers/settings.py`의 `WorkerSettings`(`functions=[]` — 실제 잡은 후속
+Phase)가 `src.config.Settings`를 `alembic/env.py`와 동일한 방식으로 직접 import해 Redis에 연결한다
+(`api/deps.get_settings` 미사용 — `workers -> api` 역방향 의존을 만들지 않기 위함, 근거는
+`src/config.py` 모듈 docstring 참조). dev용 `Dockerfile`과 `infra/docker-compose.dev.yml`
+(postgres/redis/api/worker)도 완료 — worker는 SoT D1이 경고하는 과거 사고 지점이라 postgres/redis와
+동일한 healthcheck 기반 `depends_on`을 건다. 실행법은 `infra/README.md` 참조.
+
+SQLAlchemy 모델(도메인 테이블), CI, import-linter, 실 LLM 프로바이더
+(`OpenAILLMClient`/`AnthropicLLMClient`), prod Dockerfile/compose는 후속 이슈에서 다룬다.
 
 ### 실행
 
