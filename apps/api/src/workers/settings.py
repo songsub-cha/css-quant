@@ -17,9 +17,13 @@ jobs land in Phase 2+.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from arq.connections import RedisSettings
+from arq.cron import CronJob
+from arq.typing import StartupShutdown, WorkerCoroutine
+from arq.worker import Function
 
 from src.config import Settings
 
@@ -35,5 +39,12 @@ async def healthcheck(ctx: dict[str, Any]) -> str:
 
 
 class WorkerSettings:
-    functions = [healthcheck]
+    # Explicit annotations matching arq.typing.WorkerSettingsBase exactly are
+    # required: mypy strict checks type[WorkerSettings] against that Protocol
+    # invariantly, so inferred (narrower) attribute types — or omitting an
+    # attribute that has a Protocol-level default — both fail the match.
+    functions: Sequence[WorkerCoroutine | Function] = [healthcheck]
+    cron_jobs: Sequence[CronJob] | None = None
+    on_startup: StartupShutdown | None = None
+    on_shutdown: StartupShutdown | None = None
     redis_settings = build_redis_settings(Settings().redis_url)
