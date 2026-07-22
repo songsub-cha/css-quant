@@ -1,0 +1,36 @@
+# Prod image (SoT A8 Phase 0, D1). Multi-stage, arm64-compatible
+# (python:3.12-slim, per SoT B4 tech-stack base image list). Unlike
+# Dockerfile (dev), source is baked into the image — no bind mounts, no
+# --reload.
+#
+# docker-compose.prod.yml runs `api` and `worker` from this same image with
+# different entrypoint/command: `api` keeps the default entrypoint below
+# (migrate once, then serve); `worker` overrides `entrypoint: []` and runs
+# arq directly, so it never runs `alembic upgrade head` and never inherits
+# uvicorn as a fallback CMD.
+FROM python:3.12-slim AS builder
+
+RUN pip install --no-cache-dir uv
+
+WORKDIR /app
+
+# Dependencies only — no `src/` yet at this point, so `--no-install-project`
+# skips trying to build the local project itself (same reasoning as
+# Dockerfile, dev).
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project
+
+FROM python:3.12-slim AS runtime
+
+WORKDIR /app
+
+COPY --from=builder /app/.venv /app/.venv
+COPY src/ ./src/
+COPY alembic/ ./alembic/
+COPY alembic.ini ./alembic.ini
+COPY docker-entrypoint.prod.sh ./docker-entrypoint.prod.sh
+
+ENV PATH="/app/.venv/bin:$PATH"
+
+ENTRYPOINT ["./docker-entrypoint.prod.sh"]
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

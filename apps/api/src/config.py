@@ -69,6 +69,16 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/quantpilot"
     redis_url: str = "redis://localhost:6379/0"
 
+    # SoT B4.6 / D2: dedicated env var for cookie Secure, never derived from
+    # ENVIRONMENT — the predecessor repo's trap was "production" + HTTP-only
+    # IP access locking the owner out of login. No default on purpose: every
+    # deployment (Tailscale HTTPS vs. LAN HTTP fallback, SoT D3) must set
+    # this explicitly rather than inherit a guessed value.
+    cookie_secure: bool
+    # SoT D2: signup is disabled by default; flipped true only for the
+    # one-time owner bootstrap, then back to false.
+    signup_enabled: bool = False
+
     @field_validator("database_url", mode="before")
     @classmethod
     def _normalize_database_url(cls, value: str) -> str:

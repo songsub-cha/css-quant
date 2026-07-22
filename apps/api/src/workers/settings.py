@@ -47,4 +47,8 @@ class WorkerSettings:
     cron_jobs: Sequence[CronJob] | None = None
     on_startup: StartupShutdown | None = None
     on_shutdown: StartupShutdown | None = None
-    redis_settings = build_redis_settings(Settings().redis_url)
+    # cookie_secure (SoT D2) has no Python-level default — it's loaded from
+    # the environment/.env at runtime by BaseSettings. mypy can't see that
+    # binding and statically demands the kwarg; see api/deps.py for the
+    # same gap.
+    redis_settings = build_redis_settings(Settings().redis_url)  # type: ignore[call-arg]
