@@ -106,6 +106,7 @@ type = "forbidden"
 source_modules = ["src.engine"]
 forbidden_modules = [
     "src.api",
+    "src.services",
     "src.workers",
 ]
 
