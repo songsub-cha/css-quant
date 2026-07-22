@@ -18,7 +18,11 @@ from src.config import Settings
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    # cookie_secure (SoT D2) has no Python-level default by design — it's
+    # loaded from the environment/.env at runtime by BaseSettings. mypy's
+    # dataclass_transform-derived __init__ signature can't see that binding
+    # and statically demands the kwarg; the ignore is for that gap only.
+    return Settings()  # type: ignore[call-arg]
 
 
 @lru_cache
