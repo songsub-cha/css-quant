@@ -44,7 +44,7 @@ def test_cookie_secure_parses_bool_strings(
     # set in dev/prod compose env_file.
     monkeypatch.setenv("COOKIE_SECURE", raw)
 
-    settings = Settings()  # type: ignore[call-arg]  # loaded from env, see api/deps.py
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]  # loaded from env, see api/deps.py
 
     assert settings.cookie_secure is expected
 
@@ -52,10 +52,13 @@ def test_cookie_secure_parses_bool_strings(
 def test_cookie_secure_has_no_default(monkeypatch: pytest.MonkeyPatch) -> None:
     # SoT D2: COOKIE_SECURE must be set explicitly per deployment — unlike
     # database_url/redis_url, there is no fallback value to silently pick.
+    # _env_file=None isolates this from a local apps/api/.env (e.g. via
+    # `cp .env.example .env` per README) so the test proves the field is
+    # required from the environment, not just absent from a given .env.
     monkeypatch.delenv("COOKIE_SECURE", raising=False)
 
     with pytest.raises(ValidationError):
-        Settings()  # type: ignore[call-arg]  # deliberately omitted to prove it's required
+        Settings(_env_file=None)  # type: ignore[call-arg]  # deliberately omitted to prove it's required
 
 
 def test_signup_enabled_defaults_false() -> None:
