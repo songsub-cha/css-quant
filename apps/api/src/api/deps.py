@@ -16,13 +16,16 @@ from collections.abc import AsyncIterator
 from functools import lru_cache
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from src.adapters.db import get_engine
 from src.adapters.user_repository import SqlAlchemyUserRepository
+from src.api.cookies import ACCESS_TOKEN_COOKIE
 from src.config import Settings
-from src.domain.user import UserRepository
+from src.domain.tokens import TokenType, decode_token
+from src.domain.user import User, UserRepository
+from src.errors import ApiError, ErrorCode
 
 
 @lru_cache
@@ -59,3 +62,34 @@ async def get_user_repository(
 
 def get_signup_enabled(settings: Annotated[Settings, Depends(get_settings)]) -> bool:
     return settings.signup_enabled
+
+
+def get_secret_key(settings: Annotated[Settings, Depends(get_settings)]) -> str:
+    return settings.secret_key
+
+
+def get_cookie_secure(settings: Annotated[Settings, Depends(get_settings)]) -> bool:
+    return settings.cookie_secure
+
+
+async def get_current_user(
+    request: Request,
+    repo: Annotated[UserRepository, Depends(get_user_repository)],
+    secret_key: Annotated[str, Depends(get_secret_key)],
+) -> User:
+    # Reused by every protected router via Depends(get_current_user) — see
+    # api/v1/auth.py's /me for the first consumer. Any failure mode (cookie
+    # absent, signature mismatch, expired, or a refresh token presented
+    # where an access token is expected) collapses to the same 401 so a
+    # caller can't distinguish "no cookie" from "bad cookie" (SoT B4.5 —
+    # don't leak more than necessary about why auth failed).
+    token = request.cookies.get(ACCESS_TOKEN_COOKIE)
+    user_id = (
+        decode_token(token, secret_key=secret_key, expected_type=TokenType.ACCESS)
+        if token is not None
+        else None
+    )
+    user = await repo.get_by_id(user_id) if user_id is not None else None
+    if user is None:
+        raise ApiError(status=401, code=ErrorCode.UNAUTHORIZED, detail="Not authenticated.")
+    return user
