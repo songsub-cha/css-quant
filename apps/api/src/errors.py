@@ -20,6 +20,8 @@ from fastapi.responses import JSONResponse
 class ErrorCode(StrEnum):
     OWNER_ALREADY_EXISTS = "OWNER_ALREADY_EXISTS"
     SIGNUP_DISABLED = "SIGNUP_DISABLED"
+    INVALID_CREDENTIALS = "INVALID_CREDENTIALS"
+    UNAUTHORIZED = "UNAUTHORIZED"
 
 
 class ApiError(Exception):

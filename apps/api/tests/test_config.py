@@ -8,7 +8,10 @@ from src.config import Settings
     ("raw", "expected"),
     [
         ("postgres://user:pw@localhost:5432/db", "postgresql+psycopg://user:pw@localhost:5432/db"),
-        ("postgresql://user:pw@localhost:5432/db", "postgresql+psycopg://user:pw@localhost:5432/db"),
+        (
+            "postgresql://user:pw@localhost:5432/db",
+            "postgresql+psycopg://user:pw@localhost:5432/db",
+        ),
         (
             "postgresql+asyncpg://user:pw@localhost:5432/db",
             "postgresql+psycopg://user:pw@localhost:5432/db",
@@ -24,7 +27,10 @@ from src.config import Settings
     ],
 )
 def test_database_url_normalizes_to_psycopg3(raw: str, expected: str) -> None:
-    settings = Settings(database_url=raw, cookie_secure=False)
+    # secret_key intentionally omitted: sourced from conftest's
+    # SECRET_KEY env default, same pattern as the other direct
+    # Settings(...) constructions below that don't concern secret_key.
+    settings = Settings(database_url=raw, cookie_secure=False)  # type: ignore[call-arg]
 
     assert settings.database_url == expected
 
@@ -62,6 +68,28 @@ def test_cookie_secure_has_no_default(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_signup_enabled_defaults_false() -> None:
-    settings = Settings(cookie_secure=False)
+    settings = Settings(cookie_secure=False)  # type: ignore[call-arg]  # secret_key from env, see above
 
     assert settings.signup_enabled is False
+
+
+def test_secret_key_has_no_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Same rationale as test_cookie_secure_has_no_default: SECRET_KEY must be
+    # set explicitly per deployment, isolated from any local apps/api/.env.
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+
+    with pytest.raises(ValidationError):
+        Settings(cookie_secure=False, _env_file=None)  # type: ignore[call-arg]
+
+
+def test_secret_key_rejects_empty_string(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The bug this guards against: `cookie_secure: bool` fails closed on an
+    # empty COOKIE_SECURE= value because pydantic can't coerce "" to bool,
+    # but `secret_key: str` would accept "" as a valid string with no
+    # min_length floor — exactly what a bare `SECRET_KEY=` line in
+    # .env.example produces after `cp .env.example .env`. min_length=32
+    # makes the empty string fail closed the same way.
+    monkeypatch.setenv("SECRET_KEY", "")
+
+    with pytest.raises(ValidationError):
+        Settings(cookie_secure=False, _env_file=None)  # type: ignore[call-arg]

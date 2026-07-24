@@ -32,7 +32,7 @@ domain-only per B2 ("adapters는 domain만 import").
 
 from __future__ import annotations
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _ASYNCPG_DRIVER = "postgresql+asyncpg"
@@ -78,6 +78,17 @@ class Settings(BaseSettings):
     # SoT D2: signup is disabled by default; flipped true only for the
     # one-time owner bootstrap, then back to false.
     signup_enabled: bool = False
+
+    # SoT D2/B4.6: JWT signing key. No default (same rationale as
+    # cookie_secure) — but unlike a bool, a `str` field accepts an *empty*
+    # string as a "valid" value with no coercion to fail on. A bare
+    # `SECRET_KEY=` line in .env (e.g. from `cp .env.example .env` before
+    # filling in a real value) would otherwise load successfully and the
+    # app would sign JWTs with an empty key — fail-open. `min_length=32`
+    # makes empty (and any too-short) values raise ValidationError too, so
+    # this field fails closed the same way cookie_secure's bool coercion
+    # does (SoT 원칙 8).
+    secret_key: str = Field(min_length=32)
 
     @field_validator("database_url", mode="before")
     @classmethod

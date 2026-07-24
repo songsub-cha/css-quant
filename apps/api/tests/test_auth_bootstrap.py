@@ -2,47 +2,24 @@
 
 No DB container in this environment: ``get_user_repository`` and
 ``get_signup_enabled`` (src/api/deps.py) are overridden via
-``app.dependency_overrides`` with an in-memory fake, the same isolation
-approach ``FakeLLMClient`` (src/adapters/llm.py) establishes for external
-adapters generally.
+``app.dependency_overrides`` with ``conftest.FakeUserRepository``, the same
+isolation approach ``FakeLLMClient`` (src/adapters/llm.py) establishes for
+external adapters generally.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
 
 from src.api.deps import get_signup_enabled, get_user_repository
-from src.domain.ids import generate_uuid7
-from src.domain.user import User
 from src.main import app
 
+from .conftest import FakeUserRepository
+
 _PAYLOAD = {"email": "owner@example.com", "password": "correct horse battery staple"}
-
-
-class FakeUserRepository:
-    """Stands in for the DB's ``server_default=func.now()`` timestamps too."""
-
-    def __init__(self) -> None:
-        self.users: list[User] = []
-
-    async def exists_any(self) -> bool:
-        return bool(self.users)
-
-    async def create(self, *, email: str, password_hash: str) -> User:
-        now = datetime.now(UTC)
-        user = User(
-            id=generate_uuid7(),
-            email=email,
-            password_hash=password_hash,
-            created_at=now,
-            updated_at=now,
-        )
-        self.users.append(user)
-        return user
 
 
 @pytest.fixture
