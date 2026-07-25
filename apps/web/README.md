@@ -11,5 +11,31 @@ React Hook Form + Zod, Tailwind v4 (+shadcn/ui), Lightweight Charts + Recharts, 
 
 ## 현재 상태
 
-디렉터리 placeholder만 존재한다. `package.json`, Vite 설정, API 클라이언트(자동 refresh 포함, SoT B5.7) 등
-실제 부트스트랩은 후속 이슈에서 다룬다.
+**순수 스캐폴딩만 존재한다.** Vite + React 18 + TypeScript 5 + React Router + Tailwind v4가 부트스트랩되어
+있고, 라우트는 `/` 하나에 콘텐츠 없는 placeholder 페이지만 붙어 있다 ("빌드되고 렌더링된다"만 증명).
+
+다음은 아직 없다 — 모두 후속 이슈:
+
+- 로그인 화면, 인증 상태 관리(TanStack Query v5 + Zustand), 보호 라우트, 실제 대시보드 콘텐츠
+- shadcn/ui 컴포넌트 본격 도입, React Hook Form + Zod 폼 검증
+- `vite-plugin-pwa` (Tailscale 접속 전제라 나중에)
+- Testing Library / MSW / Playwright E2E
+- `apps/api` prod Dockerfile이 이 빌드 산출물을 실제로 임베드하도록 하는 멀티스테이지 통합 (자리만 마련되어
+  있음 — `FRONTEND_DIST`)
+
+## 개발
+
+Node 22 + pnpm 11 필요 (`corepack enable`로 활성화 가능).
+
+```bash
+pnpm install
+pnpm dev      # 개발 서버 (기본 http://localhost:5173)
+```
+
+## 빌드
+
+```bash
+pnpm build    # tsc -b && vite build → dist/
+```
+
+기타: `pnpm lint`(ESLint), `pnpm typecheck`(`tsc -b --noEmit`).
