@@ -17,13 +17,18 @@ from src.api.cookies import clear_auth_cookies, set_auth_cookies
 from src.api.deps import (
     get_cookie_secure,
     get_current_user,
+    get_email_sender,
+    get_password_reset_token_repository,
     get_secret_key,
     get_signup_enabled,
     get_user_repository,
 )
+from src.domain.email import EmailSender
+from src.domain.password_reset import PasswordResetTokenRepository
 from src.domain.user import User, UserRead, UserRepository
 from src.services.auth import bootstrap_owner
 from src.services.auth import login as login_user
+from src.services.password_reset import confirm_password_reset, request_password_reset
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -36,6 +41,15 @@ class BootstrapRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+class PasswordResetRequestRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: str
+    new_password: str
 
 
 @router.post("/bootstrap", status_code=201)
@@ -79,3 +93,30 @@ async def logout(
 @router.get("/me")
 async def me(current_user: Annotated[User, Depends(get_current_user)]) -> UserRead:
     return UserRead.from_user(current_user)
+
+
+@router.post("/password-reset/request", status_code=200)
+async def request_password_reset_endpoint(
+    payload: PasswordResetRequestRequest,
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    token_repo: Annotated[
+        PasswordResetTokenRepository, Depends(get_password_reset_token_repository)
+    ],
+    email_sender: Annotated[EmailSender, Depends(get_email_sender)],
+) -> None:
+    # Always 200 regardless of whether payload.email is registered — see
+    # services.password_reset.request_password_reset (account enumeration).
+    await request_password_reset(user_repo, token_repo, email_sender, email=payload.email)
+
+
+@router.post("/password-reset/confirm", status_code=204)
+async def confirm_password_reset_endpoint(
+    payload: PasswordResetConfirmRequest,
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    token_repo: Annotated[
+        PasswordResetTokenRepository, Depends(get_password_reset_token_repository)
+    ],
+) -> None:
+    await confirm_password_reset(
+        user_repo, token_repo, token=payload.token, new_password=payload.new_password
+    )

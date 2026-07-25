@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from src.domain.ids import generate_uuid7
+from src.domain.password_reset import PasswordResetToken
 from src.domain.user import User
 
 os.environ.setdefault("COOKIE_SECURE", "false")
@@ -62,3 +63,43 @@ class FakeUserRepository:
 
     async def get_by_id(self, user_id: UUID) -> User | None:
         return next((u for u in self.users if u.id == user_id), None)
+
+    async def update_password_hash(self, user_id: UUID, password_hash: str) -> None:
+        user = next((u for u in self.users if u.id == user_id), None)
+        if user is not None:
+            user.password_hash = password_hash
+
+
+class FakePasswordResetTokenRepository:
+    """In-memory ``PasswordResetTokenRepository`` — same role as ``FakeUserRepository``."""
+
+    def __init__(self) -> None:
+        self.tokens: list[PasswordResetToken] = []
+
+    async def create(
+        self, *, user_id: UUID, token_hash: str, expires_at: datetime
+    ) -> PasswordResetToken:
+        token = PasswordResetToken(
+            id=generate_uuid7(),
+            user_id=user_id,
+            token_hash=token_hash,
+            expires_at=expires_at,
+            used_at=None,
+            created_at=datetime.now(UTC),
+        )
+        self.tokens.append(token)
+        return token
+
+    async def use_token(self, token_hash: str, *, now: datetime) -> UUID | None:
+        token = next(
+            (
+                t
+                for t in self.tokens
+                if t.token_hash == token_hash and t.used_at is None and t.expires_at > now
+            ),
+            None,
+        )
+        if token is None:
+            return None
+        token.used_at = now
+        return token.user_id

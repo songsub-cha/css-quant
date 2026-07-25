@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,3 +43,9 @@ class SqlAlchemyUserRepository:
     async def get_by_id(self, user_id: UUID) -> User | None:
         result = await self._session.execute(select(User).where(User.id == user_id))
         return result.scalar_one_or_none()
+
+    async def update_password_hash(self, user_id: UUID, password_hash: str) -> None:
+        await self._session.execute(
+            update(User).where(User.id == user_id).values(password_hash=password_hash)
+        )
+        await self._session.commit()

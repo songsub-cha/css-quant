@@ -20,9 +20,13 @@ from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from src.adapters.db import get_engine
+from src.adapters.email import FakeEmailSender
+from src.adapters.password_reset_repository import SqlAlchemyPasswordResetTokenRepository
 from src.adapters.user_repository import SqlAlchemyUserRepository
 from src.api.cookies import ACCESS_TOKEN_COOKIE
 from src.config import Settings
+from src.domain.email import EmailSender
+from src.domain.password_reset import PasswordResetTokenRepository
 from src.domain.tokens import TokenType, decode_token
 from src.domain.user import User, UserRepository
 from src.errors import ApiError, ErrorCode
@@ -58,6 +62,22 @@ async def get_user_repository(
     # Tests override this dependency with an in-memory fake (no DB
     # container in this environment) — see tests/test_auth_bootstrap.py.
     return SqlAlchemyUserRepository(session)
+
+
+async def get_password_reset_token_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> PasswordResetTokenRepository:
+    # Tests override this with conftest.FakePasswordResetTokenRepository, the
+    # same way get_user_repository is overridden (no DB container here).
+    return SqlAlchemyPasswordResetTokenRepository(session)
+
+
+@lru_cache
+def get_email_sender() -> EmailSender:
+    # SoT B3/ADR 0004: fake-by-default. A real SMTP-backed adapter (gated by
+    # an ``EMAIL_ADAPTER``-style env var, mirroring ``LLM_ADAPTER``) is a
+    # later issue's scope — see src/adapters/email.py.
+    return FakeEmailSender()
 
 
 def get_signup_enabled(settings: Annotated[Settings, Depends(get_settings)]) -> bool:
