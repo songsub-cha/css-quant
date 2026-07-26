@@ -1,11 +1,12 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
-import { useNavigate } from "react-router";
+import { Navigate } from "react-router";
 import { z } from "zod";
 
 import { authMeQueryKey } from "../hooks/useMeQuery";
 import { login, type User } from "../lib/auth-api";
+import { useAuthStore } from "../stores/auth-store";
 
 const loginSchema = z.object({
   email: z.string().min(1, "이메일을 입력하세요.").email("올바른 이메일 주소를 입력하세요."),
@@ -15,8 +16,8 @@ const loginSchema = z.object({
 type LoginFormValues = z.infer<typeof loginSchema>;
 
 function LoginPage() {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const status = useAuthStore((state) => state.status);
 
   const {
     register,
@@ -29,10 +30,11 @@ function LoginPage() {
   const loginMutation = useMutation({
     mutationFn: (values: LoginFormValues) => login(values.email, values.password),
     onSuccess: (user) => {
-      // Seeds the same cache entry useMeQuery owns, so its effect (the only
-      // place the auth store is written) picks this up without a refetch.
+      // Seeds the same cache entry useMeQuery owns. Its effect flips the auth
+      // store to "authenticated", and the declarative redirect below (which
+      // subscribes to that store) then navigates away — no imperative
+      // navigate() here, so the redirect can't fire before the store agrees.
       queryClient.setQueryData<User | null>(authMeQueryKey, user);
-      navigate("/", { replace: true });
     },
   });
 
@@ -40,6 +42,12 @@ function LoginPage() {
     loginMutation.reset();
     loginMutation.mutate(values);
   };
+
+  // Covers both the post-login redirect and an already-authenticated user
+  // navigating to /login directly — both are just "status is authenticated".
+  if (status === "authenticated") {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-100">
