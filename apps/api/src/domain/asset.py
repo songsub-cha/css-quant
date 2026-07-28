@@ -67,6 +67,30 @@ class DataSource(Protocol):
     async def list_tickers(self) -> list[TickerInfo]: ...
 
 
+class AssetRepository(Protocol):
+    """Port ``src.services.asset_sync`` depends on; ``SqlAlchemyAssetRepository`` implements it.
+
+    Scoped to *active* rows only (SoT C3 — asset identity is ticker +
+    listing span, not ticker alone): a delisted-then-relisted ticker must
+    get a new row rather than reactivating the old one, so this port never
+    exposes a lookup or write that could touch an inactive row.
+    """
+
+    async def get_active_by_ticker(self, ticker: str, market: Market) -> Asset | None: ...
+
+    async def upsert_active(
+        self,
+        *,
+        ticker: str,
+        name: str,
+        market: Market,
+        asset_type: AssetType,
+        exchange: Exchange,
+    ) -> Asset:
+        """Update the active row for ``(ticker, market)`` if one exists, else insert a new one."""
+        ...
+
+
 class Asset(Base):
     """Ticker master row (SoT C3 — assets).
 

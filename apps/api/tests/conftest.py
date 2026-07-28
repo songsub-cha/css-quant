@@ -24,6 +24,7 @@ import os
 from datetime import UTC, datetime
 from uuid import UUID
 
+from src.domain.asset import Asset, AssetType, Exchange, Market
 from src.domain.ids import generate_uuid7
 from src.domain.password_reset import PasswordResetToken
 from src.domain.user import User
@@ -68,6 +69,55 @@ class FakeUserRepository:
         user = next((u for u in self.users if u.id == user_id), None)
         if user is not None:
             user.password_hash = password_hash
+
+
+class FakeAssetRepository:
+    """In-memory ``AssetRepository`` — same role as ``FakeUserRepository``.
+
+    Mirrors ``SqlAlchemyAssetRepository``'s "active rows only" scoping (SoT
+    C3): a relisted ticker's old inactive row is never matched or mutated,
+    only ever left in ``self.assets`` for a later query to see.
+    """
+
+    def __init__(self) -> None:
+        self.assets: list[Asset] = []
+
+    async def get_active_by_ticker(self, ticker: str, market: Market) -> Asset | None:
+        return next(
+            (a for a in self.assets if a.ticker == ticker and a.market == market and a.is_active),
+            None,
+        )
+
+    async def upsert_active(
+        self,
+        *,
+        ticker: str,
+        name: str,
+        market: Market,
+        asset_type: AssetType,
+        exchange: Exchange,
+    ) -> Asset:
+        existing = await self.get_active_by_ticker(ticker, market)
+        if existing is not None:
+            existing.name = name
+            existing.asset_type = asset_type
+            existing.exchange = exchange
+            return existing
+
+        now = datetime.now(UTC)
+        asset = Asset(
+            id=generate_uuid7(),
+            ticker=ticker,
+            name=name,
+            market=market,
+            asset_type=asset_type,
+            exchange=exchange,
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+        self.assets.append(asset)
+        return asset
 
 
 class FakePasswordResetTokenRepository:
