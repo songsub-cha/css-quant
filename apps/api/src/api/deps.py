@@ -19,12 +19,14 @@ from typing import Annotated
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from src.adapters.asset_repository import SqlAlchemyAssetRepository
 from src.adapters.db import get_engine
 from src.adapters.email import FakeEmailSender
 from src.adapters.password_reset_repository import SqlAlchemyPasswordResetTokenRepository
 from src.adapters.user_repository import SqlAlchemyUserRepository
 from src.api.cookies import ACCESS_TOKEN_COOKIE
 from src.config import Settings
+from src.domain.asset import AssetRepository
 from src.domain.email import EmailSender
 from src.domain.password_reset import PasswordResetTokenRepository
 from src.domain.tokens import TokenType, decode_token
@@ -62,6 +64,15 @@ async def get_user_repository(
     # Tests override this dependency with an in-memory fake (no DB
     # container in this environment) — see tests/test_auth_bootstrap.py.
     return SqlAlchemyUserRepository(session)
+
+
+async def get_asset_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> AssetRepository:
+    # Tests override this with conftest.FakeAssetRepository, the same way
+    # get_user_repository is overridden (no DB container in this
+    # environment).
+    return SqlAlchemyAssetRepository(session)
 
 
 async def get_password_reset_token_repository(
