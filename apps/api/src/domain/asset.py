@@ -1,4 +1,4 @@
-"""Ticker master schema + data source port (SoT C1 — domain).
+"""Ticker master schema + data source port (SoT C1/C3 — domain).
 
 ``DataSource`` is the port ``src.services``/``src.workers`` will depend on
 once the collection pipeline is wired up (a later issue). It lives here —
@@ -10,19 +10,40 @@ forbids most layers from importing ``src.adapters`` directly. Every layer is
 already allowed to import ``domain``, so the port lives here and
 implementations satisfy it structurally (Python ``Protocol``, no explicit
 inheritance).
+
+``Asset`` is the SQLAlchemy model that persists ``DataSource.list_tickers()``
+output (SoT C3) — the upsert wiring between the two is a later issue's
+scope; this one only adds the table.
 """
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Protocol
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import Boolean, Date, DateTime, String, func
+from sqlalchemy import Enum as SAEnum
+from sqlalchemy.orm import Mapped, mapped_column
+
+from src.domain.base import Base
+from src.domain.ids import generate_uuid7
 
 
 class Exchange(StrEnum):
     KOSPI = "KOSPI"
     KOSDAQ = "KOSDAQ"
+
+
+class Market(StrEnum):
+    KR = "KR"
+
+
+class AssetType(StrEnum):
+    STOCK = "STOCK"
+    ETF = "ETF"
 
 
 class TickerInfo(BaseModel):
@@ -44,3 +65,40 @@ class DataSource(Protocol):
     """
 
     async def list_tickers(self) -> list[TickerInfo]: ...
+
+
+class Asset(Base):
+    """Ticker master row (SoT C3 — assets).
+
+    Asset identity is ticker + listing span, not ticker alone: a KRX ticker
+    code can be reused after delisting, so uniqueness is enforced only among
+    active rows (partial index on ``(ticker, market) WHERE is_active``,
+    added in the Alembic migration). A relisting under the same ticker gets
+    a new row rather than reactivating the old one.
+    """
+
+    __tablename__ = "assets"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=generate_uuid7)
+    ticker: Mapped[str] = mapped_column(String(20))
+    name: Mapped[str] = mapped_column(String(255))
+    market: Mapped[Market] = mapped_column(
+        SAEnum(Market, name="market", values_callable=lambda e: [x.value for x in e])
+    )
+    asset_type: Mapped[AssetType] = mapped_column(
+        SAEnum(AssetType, name="asset_type", values_callable=lambda e: [x.value for x in e])
+    )
+    exchange: Mapped[Exchange] = mapped_column(
+        SAEnum(Exchange, name="exchange", values_callable=lambda e: [x.value for x in e])
+    )
+    sector: Mapped[str | None] = mapped_column(String(100))
+    currency: Mapped[str] = mapped_column(String(3), server_default="KRW")
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    listed_at: Mapped[date | None] = mapped_column(Date)
+    delisted_at: Mapped[date | None] = mapped_column(Date)
+    is_managed: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    is_alert: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
