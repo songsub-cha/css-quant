@@ -160,12 +160,17 @@ def test_alembic_downgrade_removes_market_prices_table(migrated_database_url: st
 
     Self-contained rather than relying on running last in file-declaration
     order: it restores head afterward regardless of test collection order.
-    ``market_prices`` is the current head, so a relative ``-1`` correctly
-    targets only this revision (see ``test_asset_migration.py``'s sibling
-    test and its comment for why a future new head would need an explicit
-    target instead).
+
+    Targets the explicit predecessor revision (``5e8dcb0561bf``, the assets
+    revision) rather than a relative ``downgrade -1``: a relative ``-1``
+    only targets whatever is directly below the current head, so it would
+    silently start undoing the wrong revision the moment another issue
+    chains a new head above ``market_prices`` — the same regression this
+    issue just fixed in ``test_asset_migration.py``'s sibling test. An
+    explicit target stays correct however many revisions get added above
+    ``market_prices``.
     """
-    _run_alembic(migrated_database_url, "downgrade", "-1")
+    _run_alembic(migrated_database_url, "downgrade", "5e8dcb0561bf")
 
     engine = create_engine(migrated_database_url)
     try:
