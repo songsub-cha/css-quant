@@ -10,8 +10,10 @@ swap (SoT B3) composes both ports independently at the DI root
 (``api/deps.py``, out of scope here).
 
 ``MarketPrice`` is the SQLAlchemy model that persists
-``PriceDataSource.get_daily_ohlcv()`` output (SoT C3) — the upsert wiring
-between the two is a later issue's scope; this one only adds the table.
+``PriceDataSource.get_daily_ohlcv()`` output (SoT C3). ``MarketPriceRepository``
+is the port that wiring goes through — ``src.services.price_sync.sync_prices``
+maps ``DailyPriceInfo.ticker`` to ``asset_id`` and upserts via this port, the
+same pattern as ``AssetRepository``/``sync_assets`` (issue #27/#29).
 """
 
 from __future__ import annotations
@@ -32,8 +34,9 @@ class DailyPriceInfo(BaseModel):
     """External-facing representation of a single ticker's daily OHLCV bar.
 
     Keyed by ``ticker`` rather than ``asset_id`` — like ``TickerInfo``, this
-    is what an external source (pykrx) returns; mapping ticker to
-    ``asset_id`` is a later issue's upsert wiring.
+    is what an external source (pykrx) returns; ``src.services.price_sync``
+    maps ``ticker`` to ``asset_id`` via ``AssetRepository`` before upserting
+    into ``MarketPriceRepository``.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -65,6 +68,21 @@ class PriceDataSource(Protocol):
     """
 
     async def get_daily_ohlcv(self, trade_date: date) -> list[DailyPriceInfo]: ...
+
+
+class MarketPriceRepository(Protocol):
+    """Port ``src.services.price_sync`` depends on — same role as ``AssetRepository``.
+
+    Identity is ``(asset_id, date)`` — same shape as ``MarketPrice``'s
+    composite primary key. Unlike ``AssetRepository``, there is no separate
+    lookup method: ``price_sync`` never needs to read a bar back before
+    deciding whether to insert or update, so ``upsert`` is the only
+    operation this port exposes.
+    """
+
+    async def upsert(self, *, asset_id: UUID, bar: DailyPriceInfo) -> MarketPrice:
+        """Update the ``(asset_id, bar.date)`` row if one exists, else insert a new one."""
+        ...
 
 
 class MarketPrice(Base):

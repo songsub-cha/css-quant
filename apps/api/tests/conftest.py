@@ -26,6 +26,7 @@ from uuid import UUID
 
 from src.domain.asset import Asset, AssetType, Exchange, Market
 from src.domain.ids import generate_uuid7
+from src.domain.market_price import DailyPriceInfo, MarketPrice
 from src.domain.password_reset import PasswordResetToken
 from src.domain.user import User
 
@@ -118,6 +119,50 @@ class FakeAssetRepository:
         )
         self.assets.append(asset)
         return asset
+
+
+class FakeMarketPriceRepository:
+    """In-memory ``MarketPriceRepository`` — same role as ``FakeAssetRepository``.
+
+    Mirrors ``SqlAlchemyMarketPriceRepository``'s ``(asset_id, date)``
+    in-place update semantics: re-upserting the same key updates the
+    existing row rather than appending a duplicate.
+    """
+
+    def __init__(self) -> None:
+        self.prices: list[MarketPrice] = []
+
+    async def upsert(self, *, asset_id: UUID, bar: DailyPriceInfo) -> MarketPrice:
+        existing = next(
+            (p for p in self.prices if p.asset_id == asset_id and p.date == bar.date), None
+        )
+        if existing is not None:
+            existing.open = bar.open
+            existing.high = bar.high
+            existing.low = bar.low
+            existing.close = bar.close
+            existing.adjusted_close = bar.adjusted_close
+            existing.volume = bar.volume
+            existing.trading_value = bar.trading_value
+            existing.market_cap = bar.market_cap
+            existing.halted = bar.halted
+            return existing
+
+        row = MarketPrice(
+            asset_id=asset_id,
+            date=bar.date,
+            open=bar.open,
+            high=bar.high,
+            low=bar.low,
+            close=bar.close,
+            adjusted_close=bar.adjusted_close,
+            volume=bar.volume,
+            trading_value=bar.trading_value,
+            market_cap=bar.market_cap,
+            halted=bar.halted,
+        )
+        self.prices.append(row)
+        return row
 
 
 class FakePasswordResetTokenRepository:
