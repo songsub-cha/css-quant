@@ -176,8 +176,15 @@ def test_alembic_downgrade_removes_assets_table_and_enum_types(
 
     Self-contained rather than relying on running last in file-declaration
     order: it restores head afterward regardless of test collection order.
+
+    Targets the explicit pre-``assets`` revision (``182348023054``) rather
+    than a relative ``downgrade -1``: since issue #31 added ``market_prices``
+    as a new head chained after ``assets``, a relative ``-1`` from head would
+    only undo ``market_prices`` and leave ``assets`` in place, making the
+    ``not has_table("assets")`` assertion below false. An explicit target
+    stays correct however many revisions get added above ``assets``.
     """
-    _run_alembic(migrated_database_url, "downgrade", "-1")
+    _run_alembic(migrated_database_url, "downgrade", "182348023054")
 
     engine = create_engine(migrated_database_url)
     try:
