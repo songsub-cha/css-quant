@@ -16,12 +16,14 @@ dependencies = [
     "argon2-cffi>=23.1",
     "email-validator>=2.2",
     "pyjwt>=2.9",
+    "pykrx>=1.2.8",
+    "finance-datareader>=0.9.202",
+    "httpx>=0.27",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.3",
-    "httpx>=0.27",
     "ruff>=0.8",
     "mypy>=1.13",
     "import-linter>=2.1",
@@ -46,6 +48,11 @@ select = ["E", "F", "I", "UP", "B"]
 python_version = "3.12"
 strict = true
 files = ["src", "tests"]
+
+# pykrx/FinanceDataReader/pandas ship no type stubs (SoT C1 real data-source adapters).
+[[tool.mypy.overrides]]
+module = ["pykrx.*", "FinanceDataReader", "pandas"]
+ignore_missing_imports = true
 
 # SoT B2 — layered architecture, mechanically enforced (issue #11).
 # Layers: domain (independent) -> adapters -> services -> api/v1, with

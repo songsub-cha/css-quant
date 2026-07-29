@@ -12,9 +12,9 @@ def test_fake_price_data_source_returns_expected_tickers() -> None:
 
     bars = asyncio.run(source.get_daily_ohlcv(_TRADE_DATE))
 
-    assert len(bars) == 3
+    assert len(bars) == 4
     assert all(isinstance(b, DailyPriceInfo) for b in bars)
-    assert {b.ticker for b in bars} == {"005930", "000660", "086520"}
+    assert {b.ticker for b in bars} == {"005930", "000660", "086520", "069500"}
     assert all(b.date == _TRADE_DATE for b in bars)
 
 
