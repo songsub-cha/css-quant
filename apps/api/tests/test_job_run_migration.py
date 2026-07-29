@@ -77,6 +77,8 @@ def test_migration_creates_job_runs_table_with_expected_columns(engine: Engine) 
         "finished_at",
         "error",
         "stats",
+        "created_at",
+        "updated_at",
     }
 
 
@@ -104,6 +106,30 @@ def test_status_enum_round_trips_lowercase_values(engine: Engine) -> None:
         ).one()
 
     assert row.status == "success"
+
+
+def test_alembic_downgrade_to_prior_revision_removes_timestamp_columns(
+    migrated_database_url: str,
+) -> None:
+    """Downgrades one step (this revision only) then re-upgrades.
+
+    Targets the explicit prior revision (``ffbe282d9f4f``, the job_runs
+    table itself) rather than a relative ``downgrade -1`` — same rationale
+    as ``test_alembic_downgrade_removes_job_runs_table_and_enum_type`` below:
+    a relative ``-1`` breaks the moment another issue chains a new head
+    above this revision.
+    """
+    _run_alembic(migrated_database_url, "downgrade", "ffbe282d9f4f")
+
+    engine = create_engine(migrated_database_url)
+    try:
+        columns = {c["name"] for c in sa.inspect(engine).get_columns("job_runs")}
+        assert "created_at" not in columns
+        assert "updated_at" not in columns
+    finally:
+        engine.dispose()
+
+    _run_alembic(migrated_database_url, "upgrade", "head")
 
 
 def test_alembic_downgrade_removes_job_runs_table_and_enum_type(

@@ -94,6 +94,8 @@ def test_start_inserts_new_running_row(
             assert row.run_date == run_date
             assert row.status == JobRunStatus.RUNNING
             assert row.finished_at is None
+            assert row.created_at is not None
+            assert row.updated_at is not None
 
     asyncio.run(_run())
 
@@ -117,6 +119,8 @@ def test_finish_updates_status_and_terminal_fields(
             assert finished.finished_at is not None
             assert finished.stats == {"synced": 42}
             assert finished.error is None
+            assert finished.created_at == started.created_at
+            assert finished.updated_at >= started.updated_at
 
     asyncio.run(_run())
 
