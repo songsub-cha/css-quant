@@ -32,6 +32,8 @@ domain-only per B2 ("adapters는 domain만 import").
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -89,6 +91,12 @@ class Settings(BaseSettings):
     # this field fails closed the same way cookie_secure's bool coercion
     # does (SoT 원칙 8).
     secret_key: str = Field(min_length=32)
+
+    # SoT B3: fake-by-default adapter swap. "fake" keeps the whole app
+    # running with zero network access/API keys; "krx" selects the real
+    # pykrx-backed adapters (src/adapters/data_sources.py), wired in
+    # src/workers/settings.py.
+    data_source: Literal["fake", "krx"] = "fake"
 
     @field_validator("database_url", mode="before")
     @classmethod

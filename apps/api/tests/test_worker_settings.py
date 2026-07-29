@@ -1,7 +1,16 @@
+import asyncio
+from typing import Any
+
 import pytest
 from arq.worker import create_worker
 
-from src.workers.settings import WorkerSettings, build_redis_settings
+from src.adapters.data_sources import (
+    FakeDataSource,
+    FakePriceDataSource,
+    PykrxDataSource,
+    PykrxPriceDataSource,
+)
+from src.workers.settings import WorkerSettings, build_data_sources_on_startup, build_redis_settings
 
 
 def test_worker_settings_boots_without_redis() -> None:
@@ -11,6 +20,28 @@ def test_worker_settings_boots_without_redis() -> None:
     worker = create_worker(WorkerSettings)
 
     assert "healthcheck" in worker.functions
+
+
+def test_on_startup_wires_fake_adapters_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATA_SOURCE", raising=False)
+    ctx: dict[str, Any] = {}
+
+    asyncio.run(build_data_sources_on_startup(ctx))
+
+    assert isinstance(ctx["data_source"], FakeDataSource)
+    assert isinstance(ctx["price_data_source"], FakePriceDataSource)
+
+
+def test_on_startup_wires_pykrx_adapters_when_data_source_is_krx(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATA_SOURCE", "krx")
+    ctx: dict[str, Any] = {}
+
+    asyncio.run(build_data_sources_on_startup(ctx))
+
+    assert isinstance(ctx["data_source"], PykrxDataSource)
+    assert isinstance(ctx["price_data_source"], PykrxPriceDataSource)
 
 
 @pytest.mark.parametrize(

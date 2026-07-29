@@ -55,11 +55,11 @@ class DailyPriceInfo(BaseModel):
 
 
 class PriceDataSource(Protocol):
-    """Port for daily OHLCV collection, selected via a future adapter env var.
+    """Port for daily OHLCV collection, selected via the ``DATA_SOURCE`` env var.
 
-    Real implementations (``PykrxPriceDataSource``, with a FinanceDataReader
-    fallback per SoT C1) are added in a later issue behind this same
-    interface — SoT B3's fake-by-default pattern, matching
+    ``PykrxPriceDataSource`` (with a FinanceDataReader fallback per SoT C1,
+    ``src/adapters/data_sources.py``) is the real implementation behind this
+    same interface — SoT B3's fake-by-default pattern, matching
     ``DataSource``/``FakeDataSource``.
 
     pykrx exposes a date-scoped, all-tickers batch query rather than a

@@ -82,6 +82,27 @@ def test_secret_key_has_no_default(monkeypatch: pytest.MonkeyPatch) -> None:
         Settings(cookie_secure=False, _env_file=None)  # type: ignore[call-arg]
 
 
+def test_data_source_defaults_to_fake() -> None:
+    settings = Settings(cookie_secure=False)  # type: ignore[call-arg]  # secret_key from env, see above
+
+    assert settings.data_source == "fake"
+
+
+def test_data_source_accepts_krx(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATA_SOURCE", "krx")
+
+    settings = Settings(cookie_secure=False, _env_file=None)  # type: ignore[call-arg]
+
+    assert settings.data_source == "krx"
+
+
+def test_data_source_rejects_unknown_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATA_SOURCE", "bogus")
+
+    with pytest.raises(ValidationError):
+        Settings(cookie_secure=False, _env_file=None)  # type: ignore[call-arg]
+
+
 def test_secret_key_rejects_empty_string(monkeypatch: pytest.MonkeyPatch) -> None:
     # The bug this guards against: `cookie_secure: bool` fails closed on an
     # empty COOKIE_SECURE= value because pydantic can't coerce "" to bool,
