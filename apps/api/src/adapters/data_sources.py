@@ -19,7 +19,12 @@ exhausting retries falls back to the documented secondary source (SoT C1) —
 (``get_market_ohlcv(date, market="ALL")`` for stocks,
 ``get_etf_ohlcv_by_ticker(date)`` for ETFs) rather than per ticker — the
 ~2,500-ticker universe (SoT A6.1) would otherwise turn one collection run
-into thousands of scraping requests.
+into thousands of scraping requests. Daily market cap (SoT A6.1/C1) follows
+the same bulk-call pattern (``get_market_cap_by_ticker(date, market="ALL")``)
+but is wired to stock bars only — ETFs are excluded from the AI score
+universe (ADR 0011), and that exclusion is enforced structurally by never
+passing the market-cap map into the ETF bar-building call, not by relying on
+what the pykrx endpoint happens to return.
 """
 
 from __future__ import annotations
@@ -173,7 +178,9 @@ class PykrxDataSource:
         return tickers
 
 
-def _ohlcv_row_to_bar(ticker: str, row: Any, trade_date: date) -> DailyPriceInfo:
+def _ohlcv_row_to_bar(
+    ticker: str, row: Any, trade_date: date, market_cap: Decimal | None = None
+) -> DailyPriceInfo:
     close = Decimal(str(row["종가"]))
     return DailyPriceInfo(
         ticker=ticker,
@@ -188,7 +195,7 @@ def _ohlcv_row_to_bar(ticker: str, row: Any, trade_date: date) -> DailyPriceInfo
         adjusted_close=close,
         volume=int(row["거래량"]),
         trading_value=Decimal(str(row["거래대금"])),
-        market_cap=None,
+        market_cap=market_cap,
         halted=False,
     )
 
@@ -213,6 +220,26 @@ def _fdr_row_to_bar(ticker: str, row: Any, trade_date: date) -> DailyPriceInfo:
     )
 
 
+async def _fetch_market_caps(date_str: str) -> dict[str, Decimal]:
+    """Bulk stock market-cap lookup for one trading day (SoT A6.1/C1).
+
+    A failure here must not drag down an otherwise-successful OHLCV fetch —
+    retries are exhausted the same way as the OHLCV bulk calls, but on final
+    failure this degrades to an empty map (all bars fall back to
+    ``market_cap=None``) instead of propagating and triggering the FDR
+    fallback path.
+    """
+    try:
+        df = await _fetch_with_retry(pykrx_stock.get_market_cap_by_ticker, date_str, market="ALL")
+    except Exception:
+        logger.warning(
+            "pykrx market cap fetch exhausted retries; degrading to market_cap=None",
+            exc_info=True,
+        )
+        return {}
+    return {str(ticker): Decimal(str(row["시가총액"])) for ticker, row in df.iterrows()}
+
+
 class PykrxPriceDataSource:
     """pykrx-primary daily OHLCV provider, FinanceDataReader fallback (SoT C1/C2)."""
 
@@ -229,8 +256,14 @@ class PykrxPriceDataSource:
                 exc_info=True,
             )
             return await self._get_daily_ohlcv_via_fdr(trade_date)
+
+        market_caps: dict[str, Decimal] = {}
+        if not stock_df.empty:
+            market_caps = await _fetch_market_caps(date_str)
+
         bars = [
-            _ohlcv_row_to_bar(str(ticker), row, trade_date) for ticker, row in stock_df.iterrows()
+            _ohlcv_row_to_bar(str(ticker), row, trade_date, market_caps.get(str(ticker)))
+            for ticker, row in stock_df.iterrows()
         ]
         bars.extend(
             _ohlcv_row_to_bar(str(ticker), row, trade_date) for ticker, row in etf_df.iterrows()
