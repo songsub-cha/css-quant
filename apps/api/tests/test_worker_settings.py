@@ -6,8 +6,10 @@ from arq.worker import create_worker
 
 from src.adapters.data_sources import (
     FakeDataSource,
+    FakeIndexPriceDataSource,
     FakePriceDataSource,
     PykrxDataSource,
+    PykrxIndexPriceDataSource,
     PykrxPriceDataSource,
 )
 from src.workers.settings import WorkerSettings, build_data_sources_on_startup, build_redis_settings
@@ -30,6 +32,7 @@ def test_on_startup_wires_fake_adapters_by_default(monkeypatch: pytest.MonkeyPat
 
     assert isinstance(ctx["data_source"], FakeDataSource)
     assert isinstance(ctx["price_data_source"], FakePriceDataSource)
+    assert isinstance(ctx["index_price_data_source"], FakeIndexPriceDataSource)
 
 
 def test_on_startup_wires_pykrx_adapters_when_data_source_is_krx(
@@ -42,6 +45,7 @@ def test_on_startup_wires_pykrx_adapters_when_data_source_is_krx(
 
     assert isinstance(ctx["data_source"], PykrxDataSource)
     assert isinstance(ctx["price_data_source"], PykrxPriceDataSource)
+    assert isinstance(ctx["index_price_data_source"], PykrxIndexPriceDataSource)
 
 
 @pytest.mark.parametrize(

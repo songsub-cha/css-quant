@@ -26,6 +26,7 @@ from uuid import UUID
 
 from src.domain.asset import Asset, AssetType, Exchange, Market
 from src.domain.ids import generate_uuid7
+from src.domain.index_price import IndexPrice, IndexPriceInfo
 from src.domain.market_price import DailyPriceInfo, MarketPrice
 from src.domain.password_reset import PasswordResetToken
 from src.domain.user import User
@@ -160,6 +161,45 @@ class FakeMarketPriceRepository:
             trading_value=bar.trading_value,
             market_cap=bar.market_cap,
             halted=bar.halted,
+        )
+        self.prices.append(row)
+        return row
+
+
+class FakeIndexPriceRepository:
+    """In-memory ``IndexPriceRepository`` — same role as ``FakeMarketPriceRepository``.
+
+    Mirrors ``SqlAlchemyIndexPriceRepository``'s ``(index_code, date)``
+    in-place update semantics: re-upserting the same key updates the
+    existing row rather than appending a duplicate.
+    """
+
+    def __init__(self) -> None:
+        self.prices: list[IndexPrice] = []
+
+    async def upsert(self, *, bar: IndexPriceInfo) -> IndexPrice:
+        existing = next(
+            (p for p in self.prices if p.index_code == bar.index_code and p.date == bar.date),
+            None,
+        )
+        if existing is not None:
+            existing.open = bar.open
+            existing.high = bar.high
+            existing.low = bar.low
+            existing.close = bar.close
+            existing.volume = bar.volume
+            existing.trading_value = bar.trading_value
+            return existing
+
+        row = IndexPrice(
+            index_code=bar.index_code,
+            date=bar.date,
+            open=bar.open,
+            high=bar.high,
+            low=bar.low,
+            close=bar.close,
+            volume=bar.volume,
+            trading_value=bar.trading_value,
         )
         self.prices.append(row)
         return row

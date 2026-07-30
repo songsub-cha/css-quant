@@ -14,13 +14,15 @@ not reject the worker before it even gets a chance to connect to Redis.
 This only proves the worker process can boot and connect to Redis; real
 jobs land in Phase 2+.
 
-``on_startup`` builds the ``DataSource``/``PriceDataSource`` adapter pair
-selected by ``Settings.data_source`` (SoT B3) into ``ctx``, so task
-functions (added in a later issue) read ``ctx["data_source"]``/
-``ctx["price_data_source"]`` instead of hardcoding a concrete adapter. This
-composition happens here rather than ``api/deps.py`` because the worker
+``on_startup`` builds the ``DataSource``/``PriceDataSource``/
+``IndexPriceDataSource`` adapter set selected by ``Settings.data_source``
+(SoT B3) into ``ctx``, so task functions (added in a later issue) read
+``ctx["data_source"]``/``ctx["price_data_source"]``/
+``ctx["index_price_data_source"]`` instead of hardcoding a concrete adapter.
+This composition happens here rather than ``api/deps.py`` because the worker
 process — not the API process — is what runs the collection jobs that
-consume these adapters (SoT D6).
+consume these adapters (SoT D6). ``cron_jobs``/``functions`` are untouched —
+scheduling the KOSPI/VKOSPI collection job is issue #39/PR #40's scope.
 """
 
 from __future__ import annotations
@@ -35,8 +37,10 @@ from arq.worker import Function
 
 from src.adapters.data_sources import (
     FakeDataSource,
+    FakeIndexPriceDataSource,
     FakePriceDataSource,
     PykrxDataSource,
+    PykrxIndexPriceDataSource,
     PykrxPriceDataSource,
 )
 from src.config import Settings
@@ -60,9 +64,11 @@ async def build_data_sources_on_startup(ctx: dict[str, Any]) -> None:
     if settings.data_source == "krx":
         ctx["data_source"] = PykrxDataSource()
         ctx["price_data_source"] = PykrxPriceDataSource()
+        ctx["index_price_data_source"] = PykrxIndexPriceDataSource()
     else:
         ctx["data_source"] = FakeDataSource()
         ctx["price_data_source"] = FakePriceDataSource()
+        ctx["index_price_data_source"] = FakeIndexPriceDataSource()
 
 
 class WorkerSettings:
