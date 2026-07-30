@@ -15,8 +15,9 @@ library, so every call goes through ``_fetch_with_retry`` (exponential
 backoff, up to 3 attempts) and a fixed delay between successive requests;
 exhausting retries falls back to the documented secondary source (SoT C1) —
 ``krx_fallback`` for ticker master, FinanceDataReader for daily OHLCV.
-``PykrxPriceDataSource`` fetches the whole market in one bulk call
-(``get_market_ohlcv(date, market="ALL")``) rather than per ticker — the
+``PykrxPriceDataSource`` fetches the whole market in bulk calls
+(``get_market_ohlcv(date, market="ALL")`` for stocks,
+``get_etf_ohlcv_by_ticker(date)`` for ETFs) rather than per ticker — the
 ~2,500-ticker universe (SoT A6.1) would otherwise turn one collection run
 into thousands of scraping requests.
 """
@@ -218,19 +219,30 @@ class PykrxPriceDataSource:
     async def get_daily_ohlcv(self, trade_date: date) -> list[DailyPriceInfo]:
         date_str = trade_date.strftime("%Y%m%d")
         try:
-            df = await _fetch_with_retry(pykrx_stock.get_market_ohlcv, date_str, market="ALL")
+            stock_df = await _fetch_with_retry(
+                pykrx_stock.get_market_ohlcv, date_str, market="ALL"
+            )
+            etf_df = await _fetch_with_retry(pykrx_stock.get_etf_ohlcv_by_ticker, date_str)
         except Exception:
             logger.warning(
                 "pykrx daily OHLCV fetch exhausted retries; falling back to FinanceDataReader",
                 exc_info=True,
             )
             return await self._get_daily_ohlcv_via_fdr(trade_date)
-        return [_ohlcv_row_to_bar(str(ticker), row, trade_date) for ticker, row in df.iterrows()]
+        bars = [
+            _ohlcv_row_to_bar(str(ticker), row, trade_date) for ticker, row in stock_df.iterrows()
+        ]
+        bars.extend(
+            _ohlcv_row_to_bar(str(ticker), row, trade_date) for ticker, row in etf_df.iterrows()
+        )
+        return bars
 
     async def _get_daily_ohlcv_via_fdr(self, trade_date: date) -> list[DailyPriceInfo]:
-        listing = await asyncio.to_thread(fdr.StockListing, "KRX")
+        stock_listing = await asyncio.to_thread(fdr.StockListing, "KRX")
+        etf_listing = await asyncio.to_thread(fdr.StockListing, "ETF/KR")
+        codes = [*stock_listing["Code"], *etf_listing["Symbol"]]
         bars: list[DailyPriceInfo] = []
-        for code in listing["Code"]:
+        for code in codes:
             await asyncio.sleep(_REQUEST_DELAY_SECONDS)
             try:
                 history = await asyncio.to_thread(fdr.DataReader, code, trade_date, trade_date)

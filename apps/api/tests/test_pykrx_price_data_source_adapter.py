@@ -29,36 +29,66 @@ async def _no_op_sleep(_seconds: float) -> None:
 def _bulk_ohlcv_df() -> pd.DataFrame:
     return pd.DataFrame(
         {
-            "시가": [71000, 35000],
-            "고가": [71500, 35200],
-            "저가": [70500, 34800],
-            "종가": [71200, 35100],
-            "거래량": [15_000_000, 2_000_000],
-            "거래대금": [1_068_000_000_000, 70_000_000_000],
-            "등락률": [0.28, 0.29],
+            "시가": [71000],
+            "고가": [71500],
+            "저가": [70500],
+            "종가": [71200],
+            "거래량": [15_000_000],
+            "거래대금": [1_068_000_000_000],
+            "등락률": [0.28],
         },
-        index=pd.Index(["005930", "069500"], name="티커"),
+        index=pd.Index(["005930"], name="티커"),
     )
 
 
-def test_get_daily_ohlcv_uses_one_bulk_pykrx_call_for_the_whole_market(
+def _bulk_etf_ohlcv_df() -> pd.DataFrame:
+    # Includes columns absent from the stock bulk frame (NAV/기초지수) to prove
+    # ``_ohlcv_row_to_bar``'s key-based column access is unaffected by them.
+    return pd.DataFrame(
+        {
+            "시가": [35000],
+            "고가": [35200],
+            "저가": [34800],
+            "종가": [35100],
+            "거래량": [2_000_000],
+            "거래대금": [70_000_000_000],
+            "NAV": [35050.0],
+            "기초지수": [350.5],
+        },
+        index=pd.Index(["069500"], name="티커"),
+    )
+
+
+def test_get_daily_ohlcv_merges_stock_and_etf_bulk_calls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
 
     def get_market_ohlcv(date_str: str, market: str) -> pd.DataFrame:
-        captured["date_str"] = date_str
-        captured["market"] = market
-        captured["calls"] = captured.get("calls", 0) + 1  # type: ignore[operator]
+        captured["stock_date_str"] = date_str
+        captured["stock_market"] = market
+        captured["stock_calls"] = captured.get("stock_calls", 0) + 1  # type: ignore[operator]
         return _bulk_ohlcv_df()
 
+    def get_etf_ohlcv_by_ticker(date_str: str) -> pd.DataFrame:
+        captured["etf_date_str"] = date_str
+        captured["etf_calls"] = captured.get("etf_calls", 0) + 1  # type: ignore[operator]
+        return _bulk_etf_ohlcv_df()
+
     monkeypatch.setattr(pykrx_stock, "get_market_ohlcv", get_market_ohlcv)
+    monkeypatch.setattr(pykrx_stock, "get_etf_ohlcv_by_ticker", get_etf_ohlcv_by_ticker)
     monkeypatch.setattr(asyncio, "sleep", _no_op_sleep)
 
     source = PykrxPriceDataSource()
     bars = asyncio.run(source.get_daily_ohlcv(_TRADE_DATE))
 
-    assert captured == {"date_str": "20260729", "market": "ALL", "calls": 1}
+    assert captured == {
+        "stock_date_str": "20260729",
+        "stock_market": "ALL",
+        "stock_calls": 1,
+        "etf_date_str": "20260729",
+        "etf_calls": 1,
+    }
     assert {b.ticker for b in bars} == {"005930", "069500"}
     samsung = next(b for b in bars if b.ticker == "005930")
     assert samsung.date == _TRADE_DATE
@@ -70,26 +100,41 @@ def test_get_daily_ohlcv_uses_one_bulk_pykrx_call_for_the_whole_market(
     assert samsung.market_cap is None
     assert samsung.halted is False
 
+    kodex = next(b for b in bars if b.ticker == "069500")
+    assert kodex.date == _TRADE_DATE
+    assert kodex.open == Decimal("35000")
+    assert kodex.close == Decimal("35100")
+    assert kodex.adjusted_close == Decimal("35100")
+    assert kodex.volume == 2_000_000
+    assert kodex.trading_value == Decimal("70000000000")
+    assert kodex.market_cap is None
+    assert kodex.halted is False
+
 
 def test_get_daily_ohlcv_returns_empty_list_on_market_holiday(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An empty bulk result (e.g. a market holiday) is not a fetch failure —
     it must not trigger retries or the FDR fallback."""
-    call_count = {"n": 0}
+    call_count = {"stock": 0, "etf": 0}
 
     def get_market_ohlcv(date_str: str, market: str) -> pd.DataFrame:
-        call_count["n"] += 1
+        call_count["stock"] += 1
+        return pd.DataFrame()
+
+    def get_etf_ohlcv_by_ticker(date_str: str) -> pd.DataFrame:
+        call_count["etf"] += 1
         return pd.DataFrame()
 
     monkeypatch.setattr(pykrx_stock, "get_market_ohlcv", get_market_ohlcv)
+    monkeypatch.setattr(pykrx_stock, "get_etf_ohlcv_by_ticker", get_etf_ohlcv_by_ticker)
     monkeypatch.setattr(asyncio, "sleep", _no_op_sleep)
 
     source = PykrxPriceDataSource()
     bars = asyncio.run(source.get_daily_ohlcv(_TRADE_DATE))
 
     assert bars == []
-    assert call_count["n"] == 1
+    assert call_count == {"stock": 1, "etf": 1}
 
 
 def test_get_daily_ohlcv_falls_back_to_fdr_after_exhausting_retries(
@@ -104,8 +149,15 @@ def test_get_daily_ohlcv_falls_back_to_fdr_after_exhausting_retries(
     monkeypatch.setattr(pykrx_stock, "get_market_ohlcv", always_fails)
     monkeypatch.setattr(asyncio, "sleep", _no_op_sleep)
 
-    listing = pd.DataFrame({"Code": ["005930", "000660"]})
-    monkeypatch.setattr(fdr, "StockListing", lambda market: listing)
+    stock_listing = pd.DataFrame({"Code": ["005930", "000660"]})
+    etf_listing = pd.DataFrame({"Symbol": ["069500"]})
+
+    def stock_listing_by_market(market: str) -> pd.DataFrame:
+        if market == "ETF/KR":
+            return etf_listing
+        return stock_listing
+
+    monkeypatch.setattr(fdr, "StockListing", stock_listing_by_market)
 
     def data_reader(code: str, start: date, end: date) -> pd.DataFrame:
         if code == "005930":
@@ -118,6 +170,16 @@ def test_get_daily_ohlcv_falls_back_to_fdr_after_exhausting_retries(
                     "Volume": [15_000_000],
                 }
             )
+        if code == "069500":
+            return pd.DataFrame(
+                {
+                    "Open": [35000],
+                    "High": [35200],
+                    "Low": [34800],
+                    "Close": [35100],
+                    "Volume": [2_000_000],
+                }
+            )
         raise RuntimeError("FDR also failed for this ticker")
 
     monkeypatch.setattr(fdr, "DataReader", data_reader)
@@ -126,10 +188,15 @@ def test_get_daily_ohlcv_falls_back_to_fdr_after_exhausting_retries(
     bars = asyncio.run(source.get_daily_ohlcv(_TRADE_DATE))
 
     assert call_count["n"] == 3
-    assert len(bars) == 1
-    bar = bars[0]
-    assert bar.ticker == "005930"
-    assert bar.date == _TRADE_DATE
-    assert bar.close == Decimal("71200")
-    assert bar.adjusted_close == Decimal("71200")
-    assert bar.trading_value == Decimal("71200") * 15_000_000
+    assert {b.ticker for b in bars} == {"005930", "069500"}
+    samsung = next(b for b in bars if b.ticker == "005930")
+    assert samsung.date == _TRADE_DATE
+    assert samsung.close == Decimal("71200")
+    assert samsung.adjusted_close == Decimal("71200")
+    assert samsung.trading_value == Decimal("71200") * 15_000_000
+
+    kodex = next(b for b in bars if b.ticker == "069500")
+    assert kodex.date == _TRADE_DATE
+    assert kodex.close == Decimal("35100")
+    assert kodex.adjusted_close == Decimal("35100")
+    assert kodex.trading_value == Decimal("35100") * 2_000_000
