@@ -83,6 +83,10 @@ class AssetRepository(Protocol):
 
     async def get_active_by_ticker(self, ticker: str, market: Market) -> Asset | None: ...
 
+    async def list_active(self, market: Market, asset_type: AssetType) -> list[Asset]:
+        """List every active row for ``(market, asset_type)`` — e.g. STOCK-only, excluding ETF."""
+        ...
+
     async def upsert_active(
         self,
         *,

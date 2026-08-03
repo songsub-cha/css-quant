@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from src.domain.asset import Asset, AssetType, Exchange, Market
+from src.domain.financial_statement import FinancialStatement, FinancialStatementInfo
 from src.domain.ids import generate_uuid7
 from src.domain.index_price import IndexPrice, IndexPriceInfo
 from src.domain.market_price import DailyPriceInfo, MarketPrice
@@ -89,6 +90,13 @@ class FakeAssetRepository:
             (a for a in self.assets if a.ticker == ticker and a.market == market and a.is_active),
             None,
         )
+
+    async def list_active(self, market: Market, asset_type: AssetType) -> list[Asset]:
+        return [
+            a
+            for a in self.assets
+            if a.market == market and a.asset_type == asset_type and a.is_active
+        ]
 
     async def upsert_active(
         self,
@@ -202,6 +210,61 @@ class FakeIndexPriceRepository:
             trading_value=bar.trading_value,
         )
         self.prices.append(row)
+        return row
+
+
+class FakeFinancialStatementRepository:
+    """In-memory ``FinancialStatementRepository`` — same role as ``FakeIndexPriceRepository``.
+
+    Mirrors ``SqlAlchemyFinancialStatementRepository``'s
+    ``(asset_id, fiscal_year, fiscal_quarter)`` in-place update semantics,
+    including a 정정공시 replacing ``rcept_no``/``disclosed_at``/line items
+    on an already-existing row.
+    """
+
+    def __init__(self) -> None:
+        self.statements: list[FinancialStatement] = []
+
+    async def upsert(
+        self, *, asset_id: UUID, statement: FinancialStatementInfo
+    ) -> FinancialStatement:
+        existing = next(
+            (
+                s
+                for s in self.statements
+                if s.asset_id == asset_id
+                and s.fiscal_year == statement.fiscal_year
+                and s.fiscal_quarter == statement.fiscal_quarter
+            ),
+            None,
+        )
+        if existing is not None:
+            existing.consolidated_type = statement.consolidated_type
+            existing.revenue = statement.revenue
+            existing.operating_income = statement.operating_income
+            existing.net_income = statement.net_income
+            existing.total_assets = statement.total_assets
+            existing.total_liabilities = statement.total_liabilities
+            existing.total_equity = statement.total_equity
+            existing.disclosed_at = statement.disclosed_at
+            existing.rcept_no = statement.rcept_no
+            return existing
+
+        row = FinancialStatement(
+            asset_id=asset_id,
+            fiscal_year=statement.fiscal_year,
+            fiscal_quarter=statement.fiscal_quarter,
+            consolidated_type=statement.consolidated_type,
+            revenue=statement.revenue,
+            operating_income=statement.operating_income,
+            net_income=statement.net_income,
+            total_assets=statement.total_assets,
+            total_liabilities=statement.total_liabilities,
+            total_equity=statement.total_equity,
+            disclosed_at=statement.disclosed_at,
+            rcept_no=statement.rcept_no,
+        )
+        self.statements.append(row)
         return row
 
 

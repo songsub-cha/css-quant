@@ -103,6 +103,20 @@ def test_data_source_rejects_unknown_value(monkeypatch: pytest.MonkeyPatch) -> N
         Settings(cookie_secure=False, _env_file=None)  # type: ignore[call-arg]
 
 
+def test_dart_api_key_defaults_to_none() -> None:
+    settings = Settings(cookie_secure=False)  # type: ignore[call-arg]  # secret_key from env, see above
+
+    assert settings.dart_api_key is None
+
+
+def test_dart_api_key_accepts_explicit_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DART_API_KEY", "some-dart-key")
+
+    settings = Settings(cookie_secure=False, _env_file=None)  # type: ignore[call-arg]
+
+    assert settings.dart_api_key == "some-dart-key"
+
+
 def test_secret_key_rejects_empty_string(monkeypatch: pytest.MonkeyPatch) -> None:
     # The bug this guards against: `cookie_secure: bool` fails closed on an
     # empty COOKIE_SECURE= value because pydantic can't coerce "" to bool,
