@@ -25,6 +25,12 @@ but is wired to stock bars only — ETFs are excluded from the AI score
 universe (ADR 0011), and that exclusion is enforced structurally by never
 passing the market-cap map into the ETF bar-building call, not by relying on
 what the pykrx endpoint happens to return.
+
+``FakeIndexPriceDataSource``/``PykrxIndexPriceDataSource`` (SoT A6.2/A6.3)
+follow the same fake-by-default/retry pattern for KOSPI/VKOSPI index daily
+OHLCV — a separate pair from the ticker/price sources above because an index
+has no ``assets`` row and pykrx exposes it through a different, per-ticker
+endpoint (``get_index_ohlcv_by_date``) rather than a bulk all-tickers one.
 """
 
 from __future__ import annotations
@@ -41,6 +47,7 @@ from pykrx import stock as pykrx_stock
 
 from src.adapters import krx_fallback
 from src.domain.asset import AssetType, Exchange, TickerInfo
+from src.domain.index_price import IndexCode, IndexPriceInfo
 from src.domain.market_price import DailyPriceInfo
 
 logger = logging.getLogger(__name__)
@@ -48,6 +55,20 @@ logger = logging.getLogger(__name__)
 _MAX_ATTEMPTS = 3
 _INITIAL_BACKOFF_SECONDS = 1.0
 _REQUEST_DELAY_SECONDS = 0.2
+
+# pykrx's own get_index_ohlcv_by_date docstring example confirms "1001" as
+# the KOSPI index ticker. Neither pykrx nor FinanceDataReader documents a
+# VKOSPI ticker anywhere in their source (grepped both site-packages trees
+# for "vkospi"/"변동성" — zero hits), so it is resolved dynamically by name
+# match at collection time (PykrxIndexPriceDataSource._resolve_vkospi_ticker)
+# instead of risking a hardcoded, unverified guess.
+_KOSPI_INDEX_TICKER = "1001"
+_VKOSPI_NAME_HINT = "변동성"
+
+_FAKE_INDEX_OHLCV: tuple[tuple[IndexCode, int, int, int, int, int], ...] = (
+    (IndexCode.KOSPI, 2_650, 2_670, 2_640, 2_665, 450_000_000),
+    (IndexCode.VKOSPI, 18, 19, 17, 18, 1),
+)
 
 _STOCK_MARKETS: tuple[tuple[str, Exchange], ...] = (
     ("KOSPI", Exchange.KOSPI),
@@ -113,6 +134,30 @@ class FakePriceDataSource:
                 halted=False,
             )
             for ticker, open_, high, low, close, volume in _FAKE_OHLCV
+        ]
+
+
+class FakeIndexPriceDataSource:
+    """Deterministic stand-in for a real KOSPI/VKOSPI index OHLCV provider.
+
+    Never calls out to the network. Always returns the same fixed sample for
+    both indices, stamped with the requested ``trade_date`` — same rationale
+    as ``FakePriceDataSource``.
+    """
+
+    async def get_daily_ohlcv(self, trade_date: date) -> list[IndexPriceInfo]:
+        return [
+            IndexPriceInfo(
+                index_code=index_code,
+                date=trade_date,
+                open=Decimal(open_),
+                high=Decimal(high),
+                low=Decimal(low),
+                close=Decimal(close),
+                volume=volume,
+                trading_value=Decimal(close * volume),
+            )
+            for index_code, open_, high, low, close, volume in _FAKE_INDEX_OHLCV
         ]
 
 
@@ -286,3 +331,134 @@ class PykrxPriceDataSource:
                 continue
             bars.append(_fdr_row_to_bar(code, history.iloc[0], trade_date))
         return bars
+
+
+def _index_ohlcv_row_to_bar(index_code: IndexCode, row: Any, trade_date: date) -> IndexPriceInfo:
+    return IndexPriceInfo(
+        index_code=index_code,
+        date=trade_date,
+        open=Decimal(str(row["시가"])),
+        high=Decimal(str(row["고가"])),
+        low=Decimal(str(row["저가"])),
+        close=Decimal(str(row["종가"])),
+        volume=int(row["거래량"]),
+        trading_value=Decimal(str(row["거래대금"])),
+    )
+
+
+def _fdr_index_row_to_bar(index_code: IndexCode, row: Any, trade_date: date) -> IndexPriceInfo:
+    volume = int(row["Volume"])
+    return IndexPriceInfo(
+        index_code=index_code,
+        date=trade_date,
+        open=Decimal(str(row["Open"])),
+        high=Decimal(str(row["High"])),
+        low=Decimal(str(row["Low"])),
+        close=Decimal(str(row["Close"])),
+        volume=volume,
+        # FinanceDataReader's per-ticker quote has no trading-value column —
+        # approximated the same way _fdr_row_to_bar does for market_prices.
+        trading_value=Decimal(str(row["Close"])) * volume,
+    )
+
+
+class PykrxIndexPriceDataSource:
+    """pykrx-primary KOSPI/VKOSPI daily OHLCV provider (SoT A6.2/A6.3/C1/C2).
+
+    Only two tickers are ever fetched, so — unlike ``PykrxPriceDataSource``
+    — each index gets its own per-index ``get_index_ohlcv_by_date`` call
+    rather than a bulk all-tickers query; SoT C2's bulk-call concern (turning
+    one run into thousands of scraping requests) does not apply at this
+    scale.
+
+    KOSPI retries exhausted -> FinanceDataReader (``KS11``) fallback, mirroring
+    ``PykrxPriceDataSource``. VKOSPI has no such fallback yet — SoT C1 names
+    "KRX" as VKOSPI's secondary source, but that direct endpoint isn't wired
+    anywhere in this codebase (``krx_fallback.py`` only covers ticker
+    master) and is out of this issue's scope; VKOSPI retries exhausted means
+    that day's VKOSPI bar is simply omitted (SoT A6.4 — a single missing
+    data point is held back, not treated as a whole-sync failure).
+    """
+
+    def __init__(self) -> None:
+        self._vkospi_ticker: str | None = None
+
+    async def get_daily_ohlcv(self, trade_date: date) -> list[IndexPriceInfo]:
+        bars: list[IndexPriceInfo] = []
+
+        kospi_bar = await self._get_kospi_bar(trade_date)
+        if kospi_bar is not None:
+            bars.append(kospi_bar)
+
+        vkospi_bar = await self._get_vkospi_bar(trade_date)
+        if vkospi_bar is not None:
+            bars.append(vkospi_bar)
+
+        return bars
+
+    async def _get_kospi_bar(self, trade_date: date) -> IndexPriceInfo | None:
+        date_str = trade_date.strftime("%Y%m%d")
+        try:
+            df = await _fetch_with_retry(
+                pykrx_stock.get_index_ohlcv_by_date, date_str, date_str, _KOSPI_INDEX_TICKER
+            )
+        except Exception:
+            logger.warning(
+                "pykrx KOSPI index OHLCV fetch exhausted retries;"
+                " falling back to FinanceDataReader",
+                exc_info=True,
+            )
+            return await self._get_kospi_bar_via_fdr(trade_date)
+        if df.empty:
+            return None
+        return _index_ohlcv_row_to_bar(IndexCode.KOSPI, df.iloc[0], trade_date)
+
+    async def _get_kospi_bar_via_fdr(self, trade_date: date) -> IndexPriceInfo | None:
+        try:
+            history = await asyncio.to_thread(fdr.DataReader, "KS11", trade_date, trade_date)
+        except Exception:
+            logger.warning("FinanceDataReader KOSPI fallback failed", exc_info=True)
+            return None
+        if history.empty:
+            return None
+        return _fdr_index_row_to_bar(IndexCode.KOSPI, history.iloc[0], trade_date)
+
+    async def _get_vkospi_bar(self, trade_date: date) -> IndexPriceInfo | None:
+        date_str = trade_date.strftime("%Y%m%d")
+        try:
+            ticker = await self._resolve_vkospi_ticker()
+            df = await _fetch_with_retry(
+                pykrx_stock.get_index_ohlcv_by_date, date_str, date_str, ticker
+            )
+        except Exception:
+            logger.warning(
+                "VKOSPI index OHLCV fetch exhausted retries (or ticker unresolved);"
+                " omitting from today's result",
+                exc_info=True,
+            )
+            return None
+        if df.empty:
+            return None
+        return _index_ohlcv_row_to_bar(IndexCode.VKOSPI, df.iloc[0], trade_date)
+
+    async def _resolve_vkospi_ticker(self) -> str:
+        """Look up VKOSPI's pykrx ticker by name match rather than a hardcoded constant.
+
+        Neither pykrx nor FinanceDataReader documents a stable VKOSPI ticker
+        anywhere (unlike KOSPI's ``"1001"``, confirmed by pykrx's own
+        ``get_index_ohlcv_by_date`` docstring example) — hardcoding an
+        unverified guess risks silently collecting the wrong index under the
+        VKOSPI label. Resolved once per instance and cached; a failed lookup
+        is retried on the next call instead of caching the failure.
+        """
+        if self._vkospi_ticker is not None:
+            return self._vkospi_ticker
+        tickers = await _fetch_with_retry(pykrx_stock.get_index_ticker_list, market="KRX")
+        for raw_ticker in tickers:
+            ticker = str(raw_ticker)
+            name = await _fetch_with_retry(pykrx_stock.get_index_ticker_name, ticker)
+            if _VKOSPI_NAME_HINT in name:
+                self._vkospi_ticker = ticker
+                return ticker
+            await asyncio.sleep(_REQUEST_DELAY_SECONDS)
+        raise LookupError("VKOSPI ticker not found in KRX index ticker list")
