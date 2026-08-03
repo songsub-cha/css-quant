@@ -98,6 +98,13 @@ class Settings(BaseSettings):
     # src/workers/settings.py.
     data_source: Literal["fake", "krx"] = "fake"
 
+    # SoT C1/D2: DART OpenAPI key for the real financial-statement adapter
+    # (src/adapters/dart_financial_data_source.py). Optional — unlike
+    # secret_key, "fake" mode must run with no key set at all, so this has
+    # no min_length floor; src/workers/settings.py is what fails closed when
+    # DATA_SOURCE=krx and this is left empty.
+    dart_api_key: str | None = None
+
     @field_validator("database_url", mode="before")
     @classmethod
     def _normalize_database_url(cls, value: str) -> str:

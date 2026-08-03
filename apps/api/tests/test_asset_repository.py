@@ -180,3 +180,62 @@ def test_upsert_active_relisting_creates_new_row_and_preserves_inactive_row(
             assert sum(1 for r in rows if not r.is_active) == 1
 
     asyncio.run(_run())
+
+
+def test_list_active_returns_only_matching_market_and_asset_type(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    # Fresh tickers unused by any earlier test in this module: the Postgres
+    # fixture is module-scoped, so rows from earlier tests persist — assert
+    # inclusion/exclusion of this test's own rows rather than an exact set.
+    async def _run() -> None:
+        async with session_factory() as session:
+            repo = SqlAlchemyAssetRepository(session)
+            await repo.upsert_active(
+                ticker="005380",
+                name="현대차",
+                market=Market.KR,
+                asset_type=AssetType.STOCK,
+                exchange=Exchange.KOSPI,
+            )
+            await repo.upsert_active(
+                ticker="251340",
+                name="KODEX 200선물인버스2X",
+                market=Market.KR,
+                asset_type=AssetType.ETF,
+                exchange=Exchange.KOSPI,
+            )
+
+            stocks = await repo.list_active(Market.KR, AssetType.STOCK)
+
+            tickers = {a.ticker for a in stocks}
+            assert "005380" in tickers
+            assert "251340" not in tickers
+            assert all(a.asset_type == AssetType.STOCK for a in stocks)
+
+    asyncio.run(_run())
+
+
+def test_list_active_excludes_inactive_rows(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            repo = SqlAlchemyAssetRepository(session)
+            asset = await repo.upsert_active(
+                ticker="017670",
+                name="SK텔레콤",
+                market=Market.KR,
+                asset_type=AssetType.STOCK,
+                exchange=Exchange.KOSPI,
+            )
+            await session.execute(
+                sa.update(Asset).where(Asset.id == asset.id).values(is_active=False)
+            )
+            await session.commit()
+
+            stocks = await repo.list_active(Market.KR, AssetType.STOCK)
+
+            assert asset.id not in {a.id for a in stocks}
+
+    asyncio.run(_run())
