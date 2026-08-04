@@ -11,15 +11,17 @@ directly:
   ("DI는 `api/deps.py`").
 - ``alembic/env.py`` — outside the layer graph entirely; SoT B5.5 says
   Alembic runs against ``settings.DATABASE_URL`` directly.
-- ``src/workers/settings.py`` **only** — not the rest of ``src/workers/*``.
-  ``workers`` is one of the six layers SoT B2 orders, so a task module
-  reaching into this file for config would be an ordinary layer violation.
-  But ``WorkerSettings`` itself is the Arq process's boot entrypoint, the
-  same role ``alembic/env.py`` plays for migrations, not application logic
-  living in the ``workers`` layer — so it composes ``Settings`` the same way
-  ``alembic/env.py`` does, without routing through ``api/deps.get_settings``
-  (which would create a ``workers -> api`` edge — the reverse of the
-  ``api -> ... -> workers`` direction SoT B2 allows).
+- ``src/workers/settings.py`` and ``src/workers/backfill_cli.py`` **only** —
+  not the rest of ``src/workers/*``. ``workers`` is one of the six layers SoT
+  B2 orders, so a task module reaching into this file for config would be an
+  ordinary layer violation. But both of these are process entrypoints
+  (``WorkerSettings`` is the Arq process's boot entrypoint;
+  ``backfill_cli.py`` is a one-off script invoked directly, never scheduled),
+  the same role ``alembic/env.py`` plays for migrations, not application
+  logic living in the ``workers`` layer — so each composes ``Settings`` the
+  same way ``alembic/env.py`` does, without routing through
+  ``api/deps.get_settings`` (which would create a ``workers -> api`` edge —
+  the reverse of the ``api -> ... -> workers`` direction SoT B2 allows).
 
 Because no layer imports this module, it needs no entry in the
 import-linter layer contract (that contract only orders the six layers
