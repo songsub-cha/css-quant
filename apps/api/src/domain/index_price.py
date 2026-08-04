@@ -12,10 +12,11 @@ fetch-then-upsert split) but are separate Protocols rather than a shared one
 — identity here is ``index_code``, not ``asset_id``, so a shared interface
 would need to fork on that distinction anyway.
 
-This module only adds collection plumbing. The 200-day MA / 20-day
-volatility calculations and regime/circuit-breaker judgement that consume
-this data (SoT A6.2 market regime, A6.3 market-shock circuit breaker) are a
-later Phase 3 issue's scope (``market_regimes``, currently unimplemented).
+This module adds collection plumbing plus the read path
+(``IndexPriceRepository.get_recent``) that the 200-day MA / 20-day
+volatility calculations and regime/circuit-breaker judgement
+(SoT A6.2 market regime, A6.3 market-shock circuit breaker) consume — see
+``src.engine.market_regime`` and ``src.workers.market_regime_detection``.
 """
 
 from __future__ import annotations
@@ -81,6 +82,21 @@ class IndexPriceRepository(Protocol):
 
     async def upsert(self, *, bar: IndexPriceInfo) -> IndexPrice:
         """Update the ``(bar.index_code, bar.date)`` row if one exists, else insert a new one."""
+        ...
+
+    async def get_recent(
+        self, *, index_code: IndexCode, end_date: date, limit: int
+    ) -> list[IndexPriceInfo]:
+        """Return up to ``limit`` bars with ``date <= end_date``, ordered date ascending.
+
+        Backs the 200-day MA / 20-day volatility calculations
+        (``src.engine.market_regime``), which need the trailing window in
+        chronological order. Implementations select ``ORDER BY date DESC
+        LIMIT limit`` (to get the *most recent* ``limit`` rows) and then
+        reverse — a plain ``ORDER BY date ASC LIMIT limit`` would instead
+        return the *oldest* ``limit`` rows, which is not what a trailing
+        window means.
+        """
         ...
 
 

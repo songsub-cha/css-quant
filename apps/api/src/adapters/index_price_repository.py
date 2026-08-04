@@ -8,11 +8,13 @@ handling as ``SqlAlchemyMarketPriceRepository``, keyed on
 
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.index_price import IndexPrice, IndexPriceInfo
+from src.domain.index_price import IndexCode, IndexPrice, IndexPriceInfo
 
 
 class SqlAlchemyIndexPriceRepository:
@@ -70,3 +72,28 @@ class SqlAlchemyIndexPriceRepository:
             return existing
         await self._session.refresh(row)
         return row
+
+    async def get_recent(
+        self, *, index_code: IndexCode, end_date: date, limit: int
+    ) -> list[IndexPriceInfo]:
+        result = await self._session.execute(
+            select(IndexPrice)
+            .where(IndexPrice.index_code == index_code, IndexPrice.date <= end_date)
+            .order_by(IndexPrice.date.desc())
+            .limit(limit)
+        )
+        rows = list(result.scalars().all())
+        rows.reverse()
+        return [
+            IndexPriceInfo(
+                index_code=row.index_code,
+                date=row.date,
+                open=row.open,
+                high=row.high,
+                low=row.low,
+                close=row.close,
+                volume=row.volume,
+                trading_value=row.trading_value,
+            )
+            for row in rows
+        ]

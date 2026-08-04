@@ -21,14 +21,15 @@ weakens that requirement.
 from __future__ import annotations
 
 import os
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import UUID
 
 from src.domain.asset import Asset, AssetType, Exchange, Market
 from src.domain.financial_statement import FinancialStatement, FinancialStatementInfo
 from src.domain.ids import generate_uuid7
-from src.domain.index_price import IndexPrice, IndexPriceInfo
+from src.domain.index_price import IndexCode, IndexPrice, IndexPriceInfo
 from src.domain.market_price import DailyPriceInfo, MarketPrice
+from src.domain.market_regime import MarketRegime, MarketRegimeInfo
 from src.domain.password_reset import PasswordResetToken
 from src.domain.user import User
 
@@ -211,6 +212,75 @@ class FakeIndexPriceRepository:
         )
         self.prices.append(row)
         return row
+
+    async def get_recent(
+        self, *, index_code: IndexCode, end_date: date, limit: int
+    ) -> list[IndexPriceInfo]:
+        matching = sorted(
+            (p for p in self.prices if p.index_code == index_code and p.date <= end_date),
+            key=lambda p: p.date,
+        )
+        window = matching[-limit:] if limit > 0 else []
+        return [
+            IndexPriceInfo(
+                index_code=p.index_code,
+                date=p.date,
+                open=p.open,
+                high=p.high,
+                low=p.low,
+                close=p.close,
+                volume=p.volume,
+                trading_value=p.trading_value,
+            )
+            for p in window
+        ]
+
+
+class FakeMarketRegimeRepository:
+    """In-memory ``MarketRegimeRepository`` — same role as ``FakeIndexPriceRepository``.
+
+    Mirrors ``SqlAlchemyMarketRegimeRepository``'s ``regime_date`` in-place
+    update semantics: re-upserting the same key updates the existing row
+    rather than appending a duplicate.
+    """
+
+    def __init__(self) -> None:
+        self.regimes: list[MarketRegime] = []
+
+    async def upsert(self, *, regime: MarketRegimeInfo) -> MarketRegime:
+        existing = next(
+            (r for r in self.regimes if r.regime_date == regime.regime_date), None
+        )
+        if existing is not None:
+            existing.regime = regime.regime
+            existing.kospi_close = regime.kospi_close
+            existing.kospi_ma200 = regime.kospi_ma200
+            existing.vkospi = regime.vkospi
+            existing.kospi_volatility_20d = regime.kospi_volatility_20d
+            existing.market_shock = regime.market_shock
+            existing.signals = regime.signals
+            return existing
+
+        row = MarketRegime(
+            regime_date=regime.regime_date,
+            regime=regime.regime,
+            kospi_close=regime.kospi_close,
+            kospi_ma200=regime.kospi_ma200,
+            vkospi=regime.vkospi,
+            kospi_volatility_20d=regime.kospi_volatility_20d,
+            market_shock=regime.market_shock,
+            signals=regime.signals,
+        )
+        self.regimes.append(row)
+        return row
+
+    async def get_recent(self, *, before_date: date, limit: int) -> list[MarketRegime]:
+        matching = sorted(
+            (r for r in self.regimes if r.regime_date < before_date),
+            key=lambda r: r.regime_date,
+            reverse=True,
+        )
+        return matching[:limit] if limit > 0 else []
 
 
 class FakeFinancialStatementRepository:
