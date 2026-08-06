@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from uuid import UUID
 
 from src.domain.asset import Asset, AssetType, Exchange, Market
@@ -124,6 +125,8 @@ class FakeAssetRepository:
             asset_type=asset_type,
             exchange=exchange,
             is_active=True,
+            is_managed=False,
+            is_alert=False,
             created_at=now,
             updated_at=now,
         )
@@ -173,6 +176,26 @@ class FakeMarketPriceRepository:
         )
         self.prices.append(row)
         return row
+
+    async def get_market_caps(self, *, trade_date: date) -> dict[UUID, Decimal | None]:
+        return {p.asset_id: p.market_cap for p in self.prices if p.date == trade_date}
+
+    async def get_avg_trading_value(self, *, as_of_date: date, window: int) -> dict[UUID, Decimal]:
+        # Mirrors SqlAlchemyMarketPriceRepository.get_avg_trading_value's
+        # point-in-time semantics: bound to as_of_date first, then pick the
+        # `window` most recent *actual* trading dates within that bound.
+        eligible_dates = sorted({p.date for p in self.prices if p.date <= as_of_date}, reverse=True)
+        recent_dates = set(eligible_dates[:window]) if window > 0 else set()
+
+        by_asset: dict[UUID, list[Decimal]] = {}
+        for p in self.prices:
+            if p.date in recent_dates:
+                by_asset.setdefault(p.asset_id, []).append(p.trading_value)
+
+        return {
+            asset_id: sum(values, start=Decimal(0)) / len(values)
+            for asset_id, values in by_asset.items()
+        }
 
 
 class FakeIndexPriceRepository:
