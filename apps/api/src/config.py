@@ -34,6 +34,7 @@ domain-only per B2 ("adapters는 domain만 import").
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import Field, field_validator
@@ -106,6 +107,13 @@ class Settings(BaseSettings):
     # no min_length floor; src/workers/settings.py is what fails closed when
     # DATA_SOURCE=krx and this is left empty.
     dart_api_key: str | None = None
+
+    # SoT A6.1: universe filter thresholds (src.workers.universe_filter is
+    # the only caller) — env-var-configurable so these never get hardcoded
+    # as magic numbers in engine/worker code.
+    universe_market_cap_min: Decimal = Decimal("300000000000")  # 시총 3,000억
+    universe_avg_trading_value_min: Decimal = Decimal("1000000000")  # 20일 평균 거래대금 10억
+    universe_min_listed_days: int = 60  # 상장 60일 이상
 
     @field_validator("database_url", mode="before")
     @classmethod
