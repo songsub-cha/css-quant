@@ -186,3 +186,34 @@ def test_get_recent_returns_rows_strictly_before_end_date_most_recent_first(
             assert date(2026, 8, 3) not in [r.regime_date for r in recent_excludes_self]
 
     asyncio.run(_run())
+
+
+def test_get_by_date_returns_the_matching_row(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            repo = SqlAlchemyMarketRegimeRepository(session)
+            regime_date = date(2026, 8, 5)
+            await repo.upsert(regime=_regime(regime_date))
+
+            row = await repo.get_by_date(regime_date=regime_date)
+
+            assert row is not None
+            assert row.regime_date == regime_date
+
+    asyncio.run(_run())
+
+
+def test_get_by_date_returns_none_when_no_row_exists(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            repo = SqlAlchemyMarketRegimeRepository(session)
+
+            row = await repo.get_by_date(regime_date=date(2026, 8, 6))
+
+            assert row is None
+
+    asyncio.run(_run())

@@ -115,6 +115,11 @@ class Settings(BaseSettings):
     universe_avg_trading_value_min: Decimal = Decimal("1000000000")  # 20일 평균 거래대금 10억
     universe_min_listed_days: int = 60  # 상장 60일 이상
 
+    # SoT A6.4: data quality gate thresholds (src.workers.quality_gate is the
+    # only caller) — env-var-configurable, never hardcoded.
+    quality_gate_coverage_min_pct: Decimal = Decimal("0.98")  # 커버리지 98% 이상
+    quality_gate_max_price_move_pct: Decimal = Decimal("0.30")  # 등락률 ±30% 이내
+
     @field_validator("database_url", mode="before")
     @classmethod
     def _normalize_database_url(cls, value: str) -> str:

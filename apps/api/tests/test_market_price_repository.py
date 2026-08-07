@@ -42,7 +42,7 @@ from src.adapters.asset_repository import SqlAlchemyAssetRepository
 from src.adapters.db import get_engine
 from src.adapters.market_price_repository import SqlAlchemyMarketPriceRepository
 from src.domain.asset import Asset, AssetType, Exchange, Market
-from src.domain.market_price import DailyPriceInfo, MarketPrice
+from src.domain.market_price import DailyPriceInfo, MarketPrice, PriceCheckBar
 
 _API_ROOT = Path(__file__).resolve().parent.parent
 
@@ -306,5 +306,44 @@ def test_get_avg_trading_value_excludes_asset_with_no_rows_in_window(
             averages = await repo.get_avg_trading_value(as_of_date=date(2026, 7, 28), window=20)
 
             assert averages == {}
+
+    asyncio.run(_run())
+
+
+def test_get_price_checks_returns_only_the_requested_trade_date(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            asset = await _seed_asset(session, "005930", "삼성전자")
+            repo = SqlAlchemyMarketPriceRepository(session)
+            target_date = date(2026, 7, 29)
+            other_date = date(2026, 7, 28)
+            await repo.upsert(asset_id=asset.id, bar=_bar(target_date, close=71_200))
+            await repo.upsert(asset_id=asset.id, bar=_bar(other_date, close=1))
+
+            checks = await repo.get_price_checks(trade_date=target_date)
+
+            assert checks == {
+                asset.id: PriceCheckBar(
+                    close=Decimal(71_200), high=Decimal(71_200), low=Decimal(71_200)
+                )
+            }
+
+    asyncio.run(_run())
+
+
+def test_get_price_checks_excludes_assets_with_no_row_that_day(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            asset = await _seed_asset(session, "005930", "삼성전자")
+            repo = SqlAlchemyMarketPriceRepository(session)
+            await repo.upsert(asset_id=asset.id, bar=_bar(date(2026, 7, 28)))
+
+            checks = await repo.get_price_checks(trade_date=date(2026, 7, 29))
+
+            assert checks == {}
 
     asyncio.run(_run())

@@ -54,6 +54,22 @@ class DailyPriceInfo(BaseModel):
     halted: bool = False
 
 
+class PriceCheckBar(BaseModel):
+    """The three OHLC fields the A6.4 quality gate's integrity check needs.
+
+    A narrower projection of ``MarketPrice`` than ``DailyPriceInfo`` — the
+    gate never touches ``open``/``volume``/``adjusted_close``/etc., so
+    ``MarketPriceRepository.get_price_checks`` returns just this instead of
+    a full bar (SoT A6.4).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    close: Decimal
+    high: Decimal
+    low: Decimal
+
+
 class PriceDataSource(Protocol):
     """Port for daily OHLCV collection, selected via the ``DATA_SOURCE`` env var.
 
@@ -110,6 +126,18 @@ class MarketPriceRepository(Protocol):
         ``market_regime_detection``'s history fetches. An ``asset_id`` with
         no ``market_prices`` rows in that window is absent from the returned
         dict — callers must treat a missing key as "no data", not zero.
+        """
+        ...
+
+    async def get_price_checks(self, *, trade_date: date) -> dict[UUID, PriceCheckBar]:
+        """Every asset's close/high/low on ``trade_date`` (SoT A6.4 quality gate).
+
+        Same "row exists = key exists" semantics as ``get_market_caps``: an
+        ``asset_id`` absent from the returned dict has no ``market_prices``
+        row for ``trade_date`` at all. Used both for the day-of freshness/
+        coverage/integrity checks (called with ``trade_date=as_of_date``) and
+        to fetch the previous trading day's closes the ±30% move check
+        compares against (called with ``trade_date=`` the prior session).
         """
         ...
 
