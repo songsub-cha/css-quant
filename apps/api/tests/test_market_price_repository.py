@@ -89,6 +89,26 @@ def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(engine, expire_on_commit=False)
 
 
+@pytest.fixture(autouse=True)
+def _clean_tables(engine: AsyncEngine) -> Generator[None, None, None]:
+    """Truncate between tests — ``upsert``/``upsert_active`` each ``commit()``
+    (SqlAlchemyMarketPriceRepository, SqlAlchemyAssetRepository) against the
+    same module-scoped container, so without this a prior test's committed
+    rows leak into a later test's exact-equality assertions on the same
+    hardcoded dates (e.g. ``get_market_caps``/``get_price_checks`` returning
+    extra keys left over from an earlier ``test_upsert_*``).
+    """
+    yield
+
+    async def _truncate() -> None:
+        async with engine.begin() as conn:
+            await conn.execute(
+                sa.text("TRUNCATE TABLE market_prices, assets RESTART IDENTITY CASCADE")
+            )
+
+    asyncio.run(_truncate())
+
+
 def _bar(trade_date: date, close: int = 71_200) -> DailyPriceInfo:
     return DailyPriceInfo(
         ticker="005930",
