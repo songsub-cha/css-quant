@@ -183,9 +183,7 @@ def test_upsert_concurrent_insert_race_recovers_via_requery_and_update(
                 repo = SqlAlchemyFinancialStatementRepository(session)
                 return await repo.upsert(asset_id=asset_id, statement=_statement(rcept_no))
 
-        results = await asyncio.gather(
-            _upsert("20260331000004"), _upsert("20260331000005")
-        )
+        results = await asyncio.gather(_upsert("20260331000004"), _upsert("20260331000005"))
 
         assert results[0].asset_id == asset_id
         assert results[1].asset_id == asset_id
@@ -196,5 +194,99 @@ def test_upsert_concurrent_insert_race_recovers_via_requery_and_update(
             )
             rows = result.scalars().all()
             assert len(rows) == 1
+
+    asyncio.run(_run())
+
+
+def test_get_statement_history_excludes_statements_disclosed_after_as_of_date(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A6.7.2 look-ahead regression guard: a future-disclosed row must never enter
+    the returned history."""
+
+    async def _run() -> None:
+        async with session_factory() as session:
+            asset_id = await _seed_asset(session, ticker="005930")
+            repo = SqlAlchemyFinancialStatementRepository(session)
+            as_of = date(2026, 4, 1)
+
+            await repo.upsert(
+                asset_id=asset_id,
+                statement=_statement("20260401000010").model_copy(
+                    update={"disclosed_at": date(2026, 3, 31)}
+                ),
+            )
+            await repo.upsert(
+                asset_id=asset_id,
+                statement=_statement("20260401000011").model_copy(
+                    update={
+                        "fiscal_year": 2026,
+                        "fiscal_quarter": FiscalQuarter.Q1,
+                        "disclosed_at": date(2026, 5, 15),
+                    }
+                ),
+            )
+
+            history = await repo.get_statement_history(asset_ids=[asset_id], as_of_date=as_of)
+
+            (statement,) = history[asset_id]
+            assert statement.fiscal_year == 2025
+            assert statement.fiscal_quarter == FiscalQuarter.ANNUAL
+
+    asyncio.run(_run())
+
+
+def test_get_statement_history_groups_multiple_assets_and_periods(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            asset_a = await _seed_asset(session, ticker="005930")
+            asset_b = await _seed_asset(session, ticker="000660")
+            repo = SqlAlchemyFinancialStatementRepository(session)
+            as_of = date(2026, 4, 1)
+
+            await repo.upsert(
+                asset_id=asset_a,
+                statement=_statement("20260401000020").model_copy(
+                    update={"fiscal_quarter": FiscalQuarter.Q1, "disclosed_at": date(2025, 5, 15)}
+                ),
+            )
+            await repo.upsert(
+                asset_id=asset_a,
+                statement=_statement("20260401000021").model_copy(
+                    update={"disclosed_at": date(2026, 3, 31)}
+                ),
+            )
+            await repo.upsert(
+                asset_id=asset_b,
+                statement=_statement("20260401000022").model_copy(
+                    update={"disclosed_at": date(2026, 3, 31)}
+                ),
+            )
+
+            history = await repo.get_statement_history(
+                asset_ids=[asset_a, asset_b], as_of_date=as_of
+            )
+
+            assert len(history[asset_a]) == 2
+            assert len(history[asset_b]) == 1
+
+    asyncio.run(_run())
+
+
+def test_get_statement_history_excludes_asset_with_no_statements_in_range(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            asset_id = await _seed_asset(session, ticker="005930")
+            repo = SqlAlchemyFinancialStatementRepository(session)
+
+            history = await repo.get_statement_history(
+                asset_ids=[asset_id], as_of_date=date(2026, 4, 1)
+            )
+
+            assert history == {}
 
     asyncio.run(_run())
