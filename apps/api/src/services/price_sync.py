@@ -5,8 +5,9 @@ turns a ``PriceDataSource.get_daily_ohlcv()`` snapshot (ticker-keyed) into
 ``market_prices`` rows (``asset_id``-keyed) via ``AssetRepository`` +
 ``MarketPriceRepository.upsert``, the same pattern
 ``src.services.asset_sync.sync_assets`` uses for ``assets``. Running this on
-a schedule (Arq ``collect_prices``, SoT D6) and recording ``job_runs`` are
-later issues' scope — this one only does the per-run upsert.
+a schedule and recording ``job_runs`` is now wired via
+``src.workers.tasks.collect_prices_task``/``src.services.job_run.run_locked_job``
+(SoT D6) — this function itself only does the per-run upsert.
 """
 
 from __future__ import annotations

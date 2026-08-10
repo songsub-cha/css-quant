@@ -1877,6 +1877,7 @@ dependencies = [
     { name = "pyjwt" },
     { name = "pykrx" },
     { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "tzdata" },
     { name = "uuid6" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -1906,6 +1907,7 @@ requires-dist = [
     { name = "pyjwt", specifier = ">=2.9" },
     { name = "pykrx", specifier = ">=1.2.8" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
+    { name = "tzdata", specifier = ">=2024.1" },
     { name = "uuid6", specifier = ">=2024.7.10" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
 ]

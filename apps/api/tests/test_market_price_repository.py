@@ -95,7 +95,7 @@ def _clean_tables(engine: AsyncEngine) -> Generator[None, None, None]:
     (SqlAlchemyMarketPriceRepository, SqlAlchemyAssetRepository) against the
     same module-scoped container, so without this a prior test's committed
     rows leak into a later test's exact-equality assertions on the same
-    hardcoded dates (e.g. ``get_market_caps``/``get_price_checks`` returning
+    hardcoded dates (e.g. ``get_market_caps``/``get_price_history`` returning
     extra keys left over from an earlier ``test_upsert_*``).
     """
     yield

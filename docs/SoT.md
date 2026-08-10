@@ -591,6 +591,7 @@ DB 스키마·환경변수·크론 추가 없음 — 정적 파일과 기존 잡
 | 09:10 | paper_settle | 모의 체결 (체결가 = 당일 시가, A6.8 재현성 규칙) |
 | 15:40 | live_fill_check | 체결 확인 |
 | 16:00 | live_position_sync | 브로커 대사 |
+| 16:20 | sync_asset_master | 티커·종목 마스터 동기화 (collect_prices 선행) |
 | 16:30 | collect_prices | 일봉 수집 |
 | 16:40 | collect_kospi_vkospi | 지수/VKOSPI |
 | 16:50 | detect_regime | 레짐 판정 + 충격 검사 |
