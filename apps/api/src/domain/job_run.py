@@ -6,11 +6,12 @@ completion bar and the basis for A6.4's "gate failure recorded in
 ``job_runs.stats``" and D6's "worker detects today's un-run jobs from
 ``job_runs``" catch-up logic.
 
-Wiring an actual caller (``sync_assets``/``sync_prices``, a real Arq cron via
-``WorkerSettings.cron_jobs``) through ``start``/``finish``, the Redis
-distributed lock preventing concurrent duplicate ``(job_name, run_date)``
-runs, and the D6 catch-up query itself are all later issues' scope — this
-module only adds the table, the port, and the model.
+``sync_assets``/``sync_prices`` are now wired through ``start``/``finish``
+via ``WorkerSettings.cron_jobs`` (``src.workers.tasks``), and ``JobLock``
+below is the port the Redis distributed lock preventing concurrent
+duplicate ``(job_name, run_date)`` runs implements
+(``src.adapters.job_lock.RedisJobLock``). The D6 catch-up query itself
+remains a later issue's scope.
 """
 
 from __future__ import annotations
@@ -52,6 +53,23 @@ class JobRunRepository(Protocol):
         stats: dict[str, Any] | None = None,
     ) -> JobRun:
         """Update the row identified by ``job_run_id`` with a terminal status."""
+        ...
+
+
+class JobLock(Protocol):
+    """Port ``src.services.run_locked_job`` depends on; ``RedisJobLock`` implements it.
+
+    Prevents concurrent duplicate ``(job_name, run_date)`` runs (SoT C4) —
+    separate from the DB row above because a lock is transient coordination
+    state, not an audit record.
+    """
+
+    async def acquire(self, key: str, *, ttl_seconds: int) -> str | None:
+        """Attempt to acquire the lock; return an opaque token on success, ``None`` if held."""
+        ...
+
+    async def release(self, key: str, token: str) -> None:
+        """Release the lock only if it is still held by ``token``."""
         ...
 
 

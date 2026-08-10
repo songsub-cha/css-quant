@@ -1,9 +1,13 @@
 """Ticker master sync service (SoT C1/C2/C3 — services layer).
 
-``sync_assets`` turns a ``DataSource.list_tickers()`` snapshot into
-``assets`` rows via ``AssetRepository.upsert_active``. Recording
-``job_runs`` and detecting delistings from tickers that drop out of the
-snapshot are later issues' scope — this one only does the per-run upsert.
+``sync_assets`` is the wiring the SoT A8 Phase 2 completion bar and issue
+#27's "범위 제외" both deferred: it turns a ``DataSource.list_tickers()``
+snapshot into ``assets`` rows via ``AssetRepository.upsert_active``. Running
+this on a schedule and recording ``job_runs`` is now wired via
+``src.workers.tasks.sync_asset_master_task``/``src.services.job_run.run_locked_job``
+(SoT D6) — detecting delistings from tickers that drop out of the snapshot
+remains a later issue's scope; this function itself only does the per-run
+upsert.
 """
 
 from __future__ import annotations

@@ -32,6 +32,7 @@ from testcontainers.community.postgres import PostgresContainer
 
 from src.adapters.db import get_engine
 from src.adapters.financial_statement_repository import SqlAlchemyFinancialStatementRepository
+from src.domain.asset import Asset
 from src.domain.financial_statement import (
     ConsolidatedType,
     FinancialStatement,
@@ -83,6 +84,24 @@ def engine(migrated_database_url: str) -> Generator[AsyncEngine, None, None]:
 @pytest.fixture
 def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(engine, expire_on_commit=False)
+
+
+@pytest.fixture(autouse=True)
+def _clean_tables(engine: AsyncEngine) -> None:
+    """Reset financial_statements/assets before every test.
+
+    The container (and its data) is module-scoped for speed, but several
+    tests below seed the same ticker (e.g. "005930") — without this, a row
+    an earlier test left behind as the active row for that ticker violates
+    ``uq_assets_ticker_market_active`` on the next test's seed insert.
+    """
+
+    async def _clean() -> None:
+        async with engine.begin() as conn:
+            await conn.execute(sa.delete(FinancialStatement))
+            await conn.execute(sa.delete(Asset))
+
+    asyncio.run(_clean())
 
 
 async def _seed_asset(session: AsyncSession, *, ticker: str) -> UUID:
