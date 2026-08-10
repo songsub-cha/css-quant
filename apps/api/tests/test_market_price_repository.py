@@ -327,3 +327,72 @@ def test_get_avg_trading_value_excludes_asset_with_no_rows_in_window(
             assert averages == {}
 
     asyncio.run(_run())
+
+
+def test_get_price_history_returns_trailing_window_oldest_first(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            asset = await _seed_asset(session, "005930", "삼성전자")
+            repo = SqlAlchemyMarketPriceRepository(session)
+
+            dates_and_closes = [
+                (date(2026, 7, 24), 100),
+                (date(2026, 7, 27), 200),
+                (date(2026, 7, 28), 300),
+            ]
+            for trade_date, close in dates_and_closes:
+                await repo.upsert(asset_id=asset.id, bar=_bar(trade_date, close=close))
+
+            history = await repo.get_price_history(
+                asset_ids=[asset.id], as_of_date=date(2026, 7, 28), window=2
+            )
+
+            bars = history[asset.id]
+            assert [b.date for b in bars] == [date(2026, 7, 27), date(2026, 7, 28)]
+            assert [b.close for b in bars] == [Decimal(200), Decimal(300)]
+
+    asyncio.run(_run())
+
+
+def test_get_price_history_excludes_dates_after_as_of_date(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Look-ahead regression guard: a future-dated row must never enter the history."""
+
+    async def _run() -> None:
+        async with session_factory() as session:
+            asset = await _seed_asset(session, "005930", "삼성전자")
+            repo = SqlAlchemyMarketPriceRepository(session)
+            as_of = date(2026, 7, 28)
+
+            await repo.upsert(asset_id=asset.id, bar=_bar(as_of, close=100))
+            await repo.upsert(asset_id=asset.id, bar=_bar(as_of + timedelta(days=1), close=99_999))
+
+            history = await repo.get_price_history(
+                asset_ids=[asset.id], as_of_date=as_of, window=20
+            )
+
+            (bar,) = history[asset.id]
+            assert bar.date == as_of
+            assert bar.close == Decimal(100)
+
+    asyncio.run(_run())
+
+
+def test_get_price_history_excludes_asset_with_no_rows_in_window(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            asset = await _seed_asset(session, "005930", "삼성전자")
+            repo = SqlAlchemyMarketPriceRepository(session)
+
+            history = await repo.get_price_history(
+                asset_ids=[asset.id], as_of_date=date(2026, 7, 28), window=20
+            )
+
+            assert history == {}
+
+    asyncio.run(_run())

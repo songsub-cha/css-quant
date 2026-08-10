@@ -14,13 +14,19 @@ alongside the six line items rather than assuming they never change once set.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.financial_statement import FinancialStatement, FinancialStatementInfo
+from src.domain.financial_statement import (
+    DisclosedStatement,
+    FinancialStatement,
+    FinancialStatementInfo,
+)
 
 
 class SqlAlchemyFinancialStatementRepository:
@@ -92,3 +98,32 @@ class SqlAlchemyFinancialStatementRepository:
             return existing
         await self._session.refresh(row)
         return row
+
+    async def get_statement_history(
+        self, *, asset_ids: Sequence[UUID], as_of_date: date
+    ) -> dict[UUID, list[DisclosedStatement]]:
+        if not asset_ids:
+            return {}
+
+        result = await self._session.execute(
+            select(FinancialStatement).where(
+                FinancialStatement.asset_id.in_(asset_ids),
+                FinancialStatement.disclosed_at <= as_of_date,
+            )
+        )
+        by_asset: dict[UUID, list[DisclosedStatement]] = {}
+        for row in result.scalars().all():
+            by_asset.setdefault(row.asset_id, []).append(
+                DisclosedStatement(
+                    fiscal_year=row.fiscal_year,
+                    fiscal_quarter=row.fiscal_quarter,
+                    revenue=row.revenue,
+                    operating_income=row.operating_income,
+                    net_income=row.net_income,
+                    total_assets=row.total_assets,
+                    total_liabilities=row.total_liabilities,
+                    total_equity=row.total_equity,
+                    disclosed_at=row.disclosed_at,
+                )
+            )
+        return by_asset

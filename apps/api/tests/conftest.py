@@ -21,15 +21,21 @@ weakens that requirement.
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
 from src.domain.asset import Asset, AssetType, Exchange, Market
-from src.domain.financial_statement import FinancialStatement, FinancialStatementInfo
+from src.domain.asset_factor import AssetFactor, AssetFactorInfo
+from src.domain.financial_statement import (
+    DisclosedStatement,
+    FinancialStatement,
+    FinancialStatementInfo,
+)
 from src.domain.ids import generate_uuid7
 from src.domain.index_price import IndexCode, IndexPrice, IndexPriceInfo
-from src.domain.market_price import DailyPriceInfo, MarketPrice
+from src.domain.market_price import DailyPriceInfo, MarketPrice, PriceBar
 from src.domain.market_regime import MarketRegime, MarketRegimeInfo
 from src.domain.password_reset import PasswordResetToken
 from src.domain.user import User
@@ -197,6 +203,36 @@ class FakeMarketPriceRepository:
             for asset_id, values in by_asset.items()
         }
 
+    async def get_price_history(
+        self, *, asset_ids: Sequence[UUID], as_of_date: date, window: int
+    ) -> dict[UUID, list[PriceBar]]:
+        # Mirrors SqlAlchemyMarketPriceRepository.get_price_history: recent
+        # trading dates are market-wide (not per-asset), bounded to
+        # as_of_date first, then the `window` most recent actual dates.
+        if not asset_ids:
+            return {}
+        asset_id_set = set(asset_ids)
+        eligible_dates = sorted({p.date for p in self.prices if p.date <= as_of_date}, reverse=True)
+        recent_dates = set(eligible_dates[:window]) if window > 0 else set()
+
+        by_asset: dict[UUID, list[PriceBar]] = {}
+        for p in sorted(self.prices, key=lambda p: p.date):
+            if p.asset_id in asset_id_set and p.date in recent_dates:
+                by_asset.setdefault(p.asset_id, []).append(
+                    PriceBar(
+                        date=p.date,
+                        open=p.open,
+                        high=p.high,
+                        low=p.low,
+                        close=p.close,
+                        adjusted_close=p.adjusted_close,
+                        volume=p.volume,
+                        trading_value=p.trading_value,
+                        halted=p.halted,
+                    )
+                )
+        return by_asset
+
 
 class FakeIndexPriceRepository:
     """In-memory ``IndexPriceRepository`` — same role as ``FakeMarketPriceRepository``.
@@ -358,6 +394,101 @@ class FakeFinancialStatementRepository:
             rcept_no=statement.rcept_no,
         )
         self.statements.append(row)
+        return row
+
+    async def get_statement_history(
+        self, *, asset_ids: Sequence[UUID], as_of_date: date
+    ) -> dict[UUID, list[DisclosedStatement]]:
+        # Mirrors SqlAlchemyFinancialStatementRepository.get_statement_history's
+        # disclosed_at <= as_of_date bound (SoT A6.7.2 look-ahead prevention).
+        if not asset_ids:
+            return {}
+        asset_id_set = set(asset_ids)
+        by_asset: dict[UUID, list[DisclosedStatement]] = {}
+        for s in self.statements:
+            if s.asset_id in asset_id_set and s.disclosed_at <= as_of_date:
+                by_asset.setdefault(s.asset_id, []).append(
+                    DisclosedStatement(
+                        fiscal_year=s.fiscal_year,
+                        fiscal_quarter=s.fiscal_quarter,
+                        revenue=s.revenue,
+                        operating_income=s.operating_income,
+                        net_income=s.net_income,
+                        total_assets=s.total_assets,
+                        total_liabilities=s.total_liabilities,
+                        total_equity=s.total_equity,
+                        disclosed_at=s.disclosed_at,
+                    )
+                )
+        return by_asset
+
+
+class FakeAssetFactorRepository:
+    """In-memory ``AssetFactorRepository`` — same role as ``FakeIndexPriceRepository``.
+
+    Mirrors ``SqlAlchemyAssetFactorRepository``'s ``(asset_id, factor_date)``
+    in-place update semantics: re-upserting the same key updates the
+    existing row rather than appending a duplicate.
+    """
+
+    def __init__(self) -> None:
+        self.factors: list[AssetFactor] = []
+
+    async def upsert(self, *, factor: AssetFactorInfo) -> AssetFactor:
+        existing = next(
+            (
+                f
+                for f in self.factors
+                if f.asset_id == factor.asset_id and f.factor_date == factor.factor_date
+            ),
+            None,
+        )
+        if existing is not None:
+            existing.momentum_3m = factor.momentum_3m
+            existing.momentum_6m = factor.momentum_6m
+            existing.dist_52w_high = factor.dist_52w_high
+            existing.ma20_deviation = factor.ma20_deviation
+            existing.roe = factor.roe
+            existing.op_margin = factor.op_margin
+            existing.revenue_growth_yoy = factor.revenue_growth_yoy
+            existing.debt_ratio = factor.debt_ratio
+            existing.per = factor.per
+            existing.pbr = factor.pbr
+            existing.avg_trading_value_20d = factor.avg_trading_value_20d
+            existing.volume_cv = factor.volume_cv
+            existing.volatility_60d = factor.volatility_60d
+            existing.mdd_60d = factor.mdd_60d
+            existing.gap_frequency_60d = factor.gap_frequency_60d
+            existing.market_cap = factor.market_cap
+            existing.is_managed = factor.is_managed
+            existing.is_alert = factor.is_alert
+            existing.financial_data_as_of = factor.financial_data_as_of
+            return existing
+
+        row = AssetFactor(
+            asset_id=factor.asset_id,
+            factor_date=factor.factor_date,
+            momentum_3m=factor.momentum_3m,
+            momentum_6m=factor.momentum_6m,
+            dist_52w_high=factor.dist_52w_high,
+            ma20_deviation=factor.ma20_deviation,
+            roe=factor.roe,
+            op_margin=factor.op_margin,
+            revenue_growth_yoy=factor.revenue_growth_yoy,
+            debt_ratio=factor.debt_ratio,
+            per=factor.per,
+            pbr=factor.pbr,
+            avg_trading_value_20d=factor.avg_trading_value_20d,
+            volume_cv=factor.volume_cv,
+            volatility_60d=factor.volatility_60d,
+            mdd_60d=factor.mdd_60d,
+            gap_frequency_60d=factor.gap_frequency_60d,
+            market_cap=factor.market_cap,
+            is_managed=factor.is_managed,
+            is_alert=factor.is_alert,
+            financial_data_as_of=factor.financial_data_as_of,
+        )
+        self.factors.append(row)
         return row
 
 
