@@ -89,6 +89,25 @@ def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(engine, expire_on_commit=False)
 
 
+@pytest.fixture(autouse=True)
+def _clean_tables(engine: AsyncEngine) -> None:
+    """Reset market_prices/assets before every test.
+
+    The container (and its data) is module-scoped for speed, but
+    ``get_market_caps``/``get_avg_trading_value`` are bulk queries that scan
+    every row for a given date — without this, a row an earlier test left
+    behind (even for an unrelated ticker) silently leaks into a later
+    test's "only this asset" / "excludes assets with no row" assertions.
+    """
+
+    async def _clean() -> None:
+        async with engine.begin() as conn:
+            await conn.execute(sa.delete(MarketPrice))
+            await conn.execute(sa.delete(Asset))
+
+    asyncio.run(_clean())
+
+
 def _bar(trade_date: date, close: int = 71_200) -> DailyPriceInfo:
     return DailyPriceInfo(
         ticker="005930",
