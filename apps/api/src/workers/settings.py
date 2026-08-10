@@ -7,24 +7,26 @@ places allowed to import ``src.config`` directly (see the docstring in
 ``alembic/env.py`` does — no ``api/deps.get_settings`` — so no
 ``workers -> api`` edge is introduced (SoT B2).
 
-No real jobs are registered yet — ``functions`` holds a single no-op
-``healthcheck`` task so ``arq.worker.Worker.__init__`` (which raises
-``RuntimeError`` when ``functions`` and ``cron_jobs`` are both empty) does
-not reject the worker before it even gets a chance to connect to Redis.
-This only proves the worker process can boot and connect to Redis; real
-jobs land in Phase 2+.
+``cron_jobs`` schedules the two Phase 2 jobs (SoT D6): ``sync_asset_master``
+at UTC 07:20 (KST 16:20) and ``collect_prices`` at UTC 07:30 (KST 16:30),
+``weekday`` Mon-Fri. This KST/UTC equality holds only for these two times of
+day — the rest of D6's schedule sits at other UTC offsets (e.g. KST early
+morning wraps to the *previous* UTC day) and needs its own per-job check
+when those jobs are added.
 
-``on_startup`` builds the ``DataSource``/``PriceDataSource``/
-``IndexPriceDataSource``/``FinancialStatementDataSource`` adapter set
-selected by ``Settings.data_source`` (SoT B3) into ``ctx``, so task functions
-(added in a later issue) read ``ctx["data_source"]``/
+``on_startup`` does two things into ``ctx``: it builds/stashes the DB engine
+and an ``async_sessionmaker`` (the same ``Settings()``-composes-its-own-engine
+pattern ``api/deps.py`` uses, just without routing through it — that would
+create the forbidden ``workers -> api`` edge noted above) for the tasks to
+open sessions from, and it delegates to ``build_data_sources_on_startup`` to
+build the ``DataSource``/``PriceDataSource``/``IndexPriceDataSource``/
+``FinancialStatementDataSource`` adapter set selected by ``Settings.data_source``
+(SoT B3), so task functions read ``ctx["data_source"]``/
 ``ctx["price_data_source"]``/``ctx["index_price_data_source"]``/
 ``ctx["financial_statement_data_source"]`` instead of hardcoding a concrete
 adapter. This composition happens here rather than ``api/deps.py`` because
 the worker process — not the API process — is what runs the collection jobs
-that consume these adapters (SoT D6). ``cron_jobs``/``functions`` are
-untouched — scheduling the KOSPI/VKOSPI collection job is issue #39/PR #40's
-scope.
+that consume these adapters (SoT D6). ``on_shutdown`` disposes the engine.
 
 ``DATA_SOURCE=krx`` with an empty ``DART_API_KEY`` fails the worker at boot
 (fail-closed) rather than silently wiring a fake financial-statement source
@@ -41,9 +43,10 @@ from collections.abc import Sequence
 from typing import Any
 
 from arq.connections import RedisSettings
-from arq.cron import CronJob
+from arq.cron import CronJob, cron
 from arq.typing import StartupShutdown, WorkerCoroutine
 from arq.worker import Function
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from src.adapters.dart_financial_data_source import (
     DartFinancialStatementDataSource,
@@ -57,17 +60,14 @@ from src.adapters.data_sources import (
     PykrxIndexPriceDataSource,
     PykrxPriceDataSource,
 )
+from src.adapters.db import get_engine
 from src.config import Settings
+from src.workers.tasks import collect_prices_task, sync_asset_master_task
 
 
 def build_redis_settings(redis_url: str) -> RedisSettings:
     """Pure DSN -> RedisSettings conversion, kept separate from Settings() for testing."""
     return RedisSettings.from_dsn(redis_url)
-
-
-async def healthcheck(ctx: dict[str, Any]) -> str:
-    """No-op task that only exists to satisfy arq's non-empty functions requirement."""
-    return "ok"
 
 
 async def build_data_sources_on_startup(ctx: dict[str, Any]) -> None:
@@ -94,15 +94,48 @@ async def build_data_sources_on_startup(ctx: dict[str, Any]) -> None:
         ctx["financial_statement_data_source"] = FakeFinancialStatementDataSource()
 
 
+async def startup(ctx: dict[str, Any]) -> None:
+    engine = get_engine(Settings().database_url)  # type: ignore[call-arg]
+    ctx["engine"] = engine
+    ctx["session_maker"] = async_sessionmaker(engine, expire_on_commit=False)
+    await build_data_sources_on_startup(ctx)
+
+
+async def shutdown(ctx: dict[str, Any]) -> None:
+    await ctx["engine"].dispose()
+
+
 class WorkerSettings:
     # Explicit annotations matching arq.typing.WorkerSettingsBase exactly are
     # required: mypy strict checks type[WorkerSettings] against that Protocol
     # invariantly, so inferred (narrower) attribute types — or omitting an
     # attribute that has a Protocol-level default — both fail the match.
-    functions: Sequence[WorkerCoroutine | Function] = [healthcheck]
-    cron_jobs: Sequence[CronJob] | None = None
-    on_startup: StartupShutdown | None = build_data_sources_on_startup
-    on_shutdown: StartupShutdown | None = None
+    functions: Sequence[WorkerCoroutine | Function] = [
+        sync_asset_master_task,
+        collect_prices_task,
+    ]
+    cron_jobs: Sequence[CronJob] | None = [
+        # weekday is a set of ints (Mon=0 .. Sun=6) — arq's weekday matcher
+        # does not accept a set of weekday-name strings (only a single
+        # Literal name or int/set[int]); a string set silently never
+        # matches and crashes worker boot with OverflowError.
+        cron(
+            sync_asset_master_task,
+            hour=7,
+            minute=20,  # KST 16:20 — must precede collect_prices (SoT D6)
+            weekday={0, 1, 2, 3, 4},
+            timeout=300,
+        ),
+        cron(
+            collect_prices_task,
+            hour=7,
+            minute=30,  # KST 16:30 — daily OHLCV collection (SoT D6)
+            weekday={0, 1, 2, 3, 4},
+            timeout=300,
+        ),
+    ]
+    on_startup: StartupShutdown | None = startup
+    on_shutdown: StartupShutdown | None = shutdown
     # cookie_secure (SoT D2) has no Python-level default — it's loaded from
     # the environment/.env at runtime by BaseSettings. mypy can't see that
     # binding and statically demands the kwarg; see api/deps.py for the
