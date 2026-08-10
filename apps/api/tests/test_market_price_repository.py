@@ -27,7 +27,7 @@ import os
 import subprocess
 import sys
 from collections.abc import Generator
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
@@ -41,7 +41,7 @@ from testcontainers.community.postgres import PostgresContainer
 from src.adapters.asset_repository import SqlAlchemyAssetRepository
 from src.adapters.db import get_engine
 from src.adapters.market_price_repository import SqlAlchemyMarketPriceRepository
-from src.domain.asset import AssetType, Exchange, Market
+from src.domain.asset import Asset, AssetType, Exchange, Market
 from src.domain.market_price import DailyPriceInfo, MarketPrice
 
 _API_ROOT = Path(__file__).resolve().parent.parent
@@ -174,5 +174,137 @@ def test_upsert_with_nonexistent_asset_id_raises_integrity_error(
             repo = SqlAlchemyMarketPriceRepository(session)
             with pytest.raises(IntegrityError):
                 await repo.upsert(asset_id=uuid4(), bar=_bar(date(2026, 7, 29)))
+
+    asyncio.run(_run())
+
+
+async def _seed_asset(session: AsyncSession, ticker: str, name: str) -> Asset:
+    return await SqlAlchemyAssetRepository(session).upsert_active(
+        ticker=ticker,
+        name=name,
+        market=Market.KR,
+        asset_type=AssetType.STOCK,
+        exchange=Exchange.KOSPI,
+    )
+
+
+def _bar_with(trade_date: date, *, trading_value: int, market_cap: int | None) -> DailyPriceInfo:
+    return _bar(trade_date).model_copy(
+        update={
+            "trading_value": Decimal(trading_value),
+            "market_cap": Decimal(market_cap) if market_cap is not None else None,
+        }
+    )
+
+
+def test_get_market_caps_returns_only_the_requested_trade_date(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            asset = await _seed_asset(session, "005930", "삼성전자")
+            repo = SqlAlchemyMarketPriceRepository(session)
+            target_date = date(2026, 7, 29)
+            other_date = date(2026, 7, 28)
+            await repo.upsert(
+                asset_id=asset.id,
+                bar=_bar_with(target_date, trading_value=1, market_cap=400_000_000_000),
+            )
+            await repo.upsert(
+                asset_id=asset.id,
+                bar=_bar_with(other_date, trading_value=1, market_cap=1),
+            )
+
+            caps = await repo.get_market_caps(trade_date=target_date)
+
+            assert caps == {asset.id: Decimal(400_000_000_000)}
+
+    asyncio.run(_run())
+
+
+def test_get_market_caps_excludes_assets_with_no_row_that_day(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            asset = await _seed_asset(session, "005930", "삼성전자")
+            repo = SqlAlchemyMarketPriceRepository(session)
+            await repo.upsert(asset_id=asset.id, bar=_bar(date(2026, 7, 28)))
+
+            caps = await repo.get_market_caps(trade_date=date(2026, 7, 29))
+
+            assert caps == {}
+
+    asyncio.run(_run())
+
+
+def test_get_avg_trading_value_averages_trailing_window_of_actual_trading_days(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            asset = await _seed_asset(session, "005930", "삼성전자")
+            repo = SqlAlchemyMarketPriceRepository(session)
+
+            # 3 trading days (not calendar-consecutive — weekend gap), trading
+            # values 100/200/300 -> average of the trailing window=3 is 200.
+            for trade_date, value in [
+                (date(2026, 7, 24), 100),
+                (date(2026, 7, 27), 200),
+                (date(2026, 7, 28), 300),
+            ]:
+                bar = _bar_with(trade_date, trading_value=value, market_cap=None)
+                await repo.upsert(asset_id=asset.id, bar=bar)
+
+            averages = await repo.get_avg_trading_value(as_of_date=date(2026, 7, 28), window=3)
+
+            assert averages == {asset.id: Decimal(200)}
+
+    asyncio.run(_run())
+
+
+def test_get_avg_trading_value_excludes_dates_after_as_of_date(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Look-ahead regression guard: a future-dated row must never enter the average."""
+
+    async def _run() -> None:
+        async with session_factory() as session:
+            asset = await _seed_asset(session, "005930", "삼성전자")
+            repo = SqlAlchemyMarketPriceRepository(session)
+            as_of = date(2026, 7, 28)
+
+            history = [
+                (date(2026, 7, 24), 100),
+                (date(2026, 7, 27), 100),
+                (as_of, 100),
+            ]
+            for trade_date, value in history:
+                bar = _bar_with(trade_date, trading_value=value, market_cap=None)
+                await repo.upsert(asset_id=asset.id, bar=bar)
+
+            # A future day with a huge trading value that must be excluded.
+            future_bar = _bar_with(
+                as_of + timedelta(days=1), trading_value=1_000_000, market_cap=None
+            )
+            await repo.upsert(asset_id=asset.id, bar=future_bar)
+
+            averages = await repo.get_avg_trading_value(as_of_date=as_of, window=20)
+
+            assert averages == {asset.id: Decimal(100)}
+
+    asyncio.run(_run())
+
+
+def test_get_avg_trading_value_excludes_asset_with_no_rows_in_window(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            repo = SqlAlchemyMarketPriceRepository(session)
+
+            averages = await repo.get_avg_trading_value(as_of_date=date(2026, 7, 28), window=20)
+
+            assert averages == {}
 
     asyncio.run(_run())

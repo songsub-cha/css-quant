@@ -3,10 +3,12 @@
 Each task opens its own session from ``ctx["session_maker"]`` (set by
 ``WorkerSettings.on_startup``), builds the repositories/lock, and delegates
 the lock -> ``start_job_run`` -> service -> ``finish_job_run`` orchestration
-to ``src.services.job_run.run_locked_job``. Data sources are
-``FakeDataSource``/``FakePriceDataSource`` (SoT ADR 0004 fake-by-default) —
-a real ``DATA_SOURCE=krx`` adapter and its selection logic are a later
-issue's scope, same as ``src.adapters.data_sources`` already notes.
+to ``src.services.job_run.run_locked_job``. Data sources come from
+``ctx["data_source"]``/``ctx["price_data_source"]`` — the ``DATA_SOURCE``-selected
+adapter pair ``WorkerSettings.on_startup`` builds via
+``build_data_sources_on_startup`` (SoT B3) — rather than a hardcoded
+concrete adapter, so these tasks pick up real pykrx adapters under
+``DATA_SOURCE=krx`` the same way the rest of the worker does.
 
 ``run_date`` is today's date in KST, not UTC: the cron schedule itself is
 designed around KST wall-clock trading hours (see ``WorkerSettings``), so
@@ -20,7 +22,6 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from src.adapters.asset_repository import SqlAlchemyAssetRepository
-from src.adapters.data_sources import FakeDataSource, FakePriceDataSource
 from src.adapters.job_lock import RedisJobLock
 from src.adapters.job_run_repository import SqlAlchemyJobRunRepository
 from src.adapters.market_price_repository import SqlAlchemyMarketPriceRepository
@@ -40,7 +41,7 @@ async def sync_asset_master_task(ctx: dict[str, Any]) -> None:
         asset_repo = SqlAlchemyAssetRepository(session)
         job_run_repo = SqlAlchemyJobRunRepository(session)
         lock = RedisJobLock(ctx["redis"])
-        data_source = FakeDataSource()
+        data_source = ctx["data_source"]
 
         async def _work() -> dict[str, Any]:
             count = await sync_assets(data_source, asset_repo)
@@ -62,7 +63,7 @@ async def collect_prices_task(ctx: dict[str, Any]) -> None:
         price_repo = SqlAlchemyMarketPriceRepository(session)
         job_run_repo = SqlAlchemyJobRunRepository(session)
         lock = RedisJobLock(ctx["redis"])
-        data_source = FakePriceDataSource()
+        data_source = ctx["price_data_source"]
         trade_date = datetime.now(_KST).date()
 
         async def _work() -> dict[str, Any]:

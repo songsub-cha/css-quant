@@ -1,7 +1,8 @@
 """Ticker master schema + data source port (SoT C1/C3 — domain).
 
-``DataSource`` is the port ``src.services``/``src.workers`` will depend on
-once the collection pipeline is wired up (a later issue). It lives here —
+``DataSource`` is the port ``src.services``/``src.workers`` depend on for
+ticker-master collection (``src/workers/settings.py`` selects the concrete
+implementation via ``DATA_SOURCE``). It lives here —
 rather than alongside its concrete implementation in
 ``src/adapters/data_sources.py`` — for the same reason as
 ``UserRepository`` (see ``src/domain/user.py``): callers elsewhere in the
@@ -54,14 +55,18 @@ class TickerInfo(BaseModel):
     ticker: str
     name: str
     exchange: Exchange
+    # No default — a caller that forgets to classify a ticker must fail
+    # loudly rather than have it silently upserted as STOCK (SoT 원칙 8).
+    asset_type: AssetType
 
 
 class DataSource(Protocol):
-    """Port for ticker-master collection, selected via a future adapter env var.
+    """Port for ticker-master collection, selected via the ``DATA_SOURCE`` env var.
 
-    Real implementations (``PykrxDataSource``, with a KRX 정보데이터시스템
-    fallback) are added in a later issue behind this same interface — SoT
-    B3's fake-by-default pattern, matching ``LLMClient``/``FakeLLMClient``.
+    ``PykrxDataSource`` (with a KRX 정보데이터시스템 fallback,
+    ``src/adapters/data_sources.py``) is the real implementation behind this
+    same interface — SoT B3's fake-by-default pattern, matching
+    ``LLMClient``/``FakeLLMClient``.
     """
 
     async def list_tickers(self) -> list[TickerInfo]: ...
@@ -77,6 +82,10 @@ class AssetRepository(Protocol):
     """
 
     async def get_active_by_ticker(self, ticker: str, market: Market) -> Asset | None: ...
+
+    async def list_active(self, market: Market, asset_type: AssetType) -> list[Asset]:
+        """List every active row for ``(market, asset_type)`` — e.g. STOCK-only, excluding ETF."""
+        ...
 
     async def upsert_active(
         self,

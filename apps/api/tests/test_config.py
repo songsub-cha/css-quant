@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 from pydantic import ValidationError
 
@@ -82,6 +84,41 @@ def test_secret_key_has_no_default(monkeypatch: pytest.MonkeyPatch) -> None:
         Settings(cookie_secure=False, _env_file=None)  # type: ignore[call-arg]
 
 
+def test_data_source_defaults_to_fake() -> None:
+    settings = Settings(cookie_secure=False)  # type: ignore[call-arg]  # secret_key from env, see above
+
+    assert settings.data_source == "fake"
+
+
+def test_data_source_accepts_krx(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATA_SOURCE", "krx")
+
+    settings = Settings(cookie_secure=False, _env_file=None)  # type: ignore[call-arg]
+
+    assert settings.data_source == "krx"
+
+
+def test_data_source_rejects_unknown_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATA_SOURCE", "bogus")
+
+    with pytest.raises(ValidationError):
+        Settings(cookie_secure=False, _env_file=None)  # type: ignore[call-arg]
+
+
+def test_dart_api_key_defaults_to_none() -> None:
+    settings = Settings(cookie_secure=False)  # type: ignore[call-arg]  # secret_key from env, see above
+
+    assert settings.dart_api_key is None
+
+
+def test_dart_api_key_accepts_explicit_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DART_API_KEY", "some-dart-key")
+
+    settings = Settings(cookie_secure=False, _env_file=None)  # type: ignore[call-arg]
+
+    assert settings.dart_api_key == "some-dart-key"
+
+
 def test_secret_key_rejects_empty_string(monkeypatch: pytest.MonkeyPatch) -> None:
     # The bug this guards against: `cookie_secure: bool` fails closed on an
     # empty COOKIE_SECURE= value because pydantic can't coerce "" to bool,
@@ -93,3 +130,33 @@ def test_secret_key_rejects_empty_string(monkeypatch: pytest.MonkeyPatch) -> Non
 
     with pytest.raises(ValidationError):
         Settings(cookie_secure=False, _env_file=None)  # type: ignore[call-arg]
+
+
+def test_universe_market_cap_min_defaults_to_300_billion() -> None:
+    settings = Settings(cookie_secure=False)  # type: ignore[call-arg]  # secret_key from env, see above
+
+    assert settings.universe_market_cap_min == Decimal("300000000000")
+
+
+def test_universe_avg_trading_value_min_defaults_to_1_billion() -> None:
+    settings = Settings(cookie_secure=False)  # type: ignore[call-arg]  # secret_key from env, see above
+
+    assert settings.universe_avg_trading_value_min == Decimal("1000000000")
+
+
+def test_universe_min_listed_days_defaults_to_60() -> None:
+    settings = Settings(cookie_secure=False)  # type: ignore[call-arg]  # secret_key from env, see above
+
+    assert settings.universe_min_listed_days == 60
+
+
+def test_universe_thresholds_accept_env_var_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("UNIVERSE_MARKET_CAP_MIN", "500000000000")
+    monkeypatch.setenv("UNIVERSE_AVG_TRADING_VALUE_MIN", "2000000000")
+    monkeypatch.setenv("UNIVERSE_MIN_LISTED_DAYS", "90")
+
+    settings = Settings(cookie_secure=False, _env_file=None)  # type: ignore[call-arg]
+
+    assert settings.universe_market_cap_min == Decimal("500000000000")
+    assert settings.universe_avg_trading_value_min == Decimal("2000000000")
+    assert settings.universe_min_listed_days == 90

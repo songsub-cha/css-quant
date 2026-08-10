@@ -1,7 +1,22 @@
+import asyncio
+from typing import Any
+
 import pytest
 from arq.worker import create_worker
 
-from src.workers.settings import WorkerSettings, build_redis_settings
+from src.adapters.dart_financial_data_source import (
+    DartFinancialStatementDataSource,
+    FakeFinancialStatementDataSource,
+)
+from src.adapters.data_sources import (
+    FakeDataSource,
+    FakeIndexPriceDataSource,
+    FakePriceDataSource,
+    PykrxDataSource,
+    PykrxIndexPriceDataSource,
+    PykrxPriceDataSource,
+)
+from src.workers.settings import WorkerSettings, build_data_sources_on_startup, build_redis_settings
 from src.workers.tasks import collect_prices_task, sync_asset_master_task
 
 
@@ -35,6 +50,45 @@ def test_cron_jobs_registered_with_integer_weekday_set() -> None:
 
     collect_prices_job = by_coroutine[collect_prices_task]
     assert (collect_prices_job.hour, collect_prices_job.minute) == (7, 30)
+
+
+def test_on_startup_wires_fake_adapters_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATA_SOURCE", raising=False)
+    monkeypatch.delenv("DART_API_KEY", raising=False)
+    ctx: dict[str, Any] = {}
+
+    asyncio.run(build_data_sources_on_startup(ctx))
+
+    assert isinstance(ctx["data_source"], FakeDataSource)
+    assert isinstance(ctx["price_data_source"], FakePriceDataSource)
+    assert isinstance(ctx["index_price_data_source"], FakeIndexPriceDataSource)
+    assert isinstance(ctx["financial_statement_data_source"], FakeFinancialStatementDataSource)
+
+
+def test_on_startup_wires_pykrx_adapters_when_data_source_is_krx(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATA_SOURCE", "krx")
+    monkeypatch.setenv("DART_API_KEY", "test-dart-key")
+    ctx: dict[str, Any] = {}
+
+    asyncio.run(build_data_sources_on_startup(ctx))
+
+    assert isinstance(ctx["data_source"], PykrxDataSource)
+    assert isinstance(ctx["price_data_source"], PykrxPriceDataSource)
+    assert isinstance(ctx["index_price_data_source"], PykrxIndexPriceDataSource)
+    assert isinstance(ctx["financial_statement_data_source"], DartFinancialStatementDataSource)
+
+
+def test_on_startup_fails_closed_when_krx_selected_without_dart_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATA_SOURCE", "krx")
+    monkeypatch.delenv("DART_API_KEY", raising=False)
+    ctx: dict[str, Any] = {}
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(build_data_sources_on_startup(ctx))
 
 
 @pytest.mark.parametrize(

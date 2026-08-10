@@ -21,12 +21,16 @@ weakens that requirement.
 from __future__ import annotations
 
 import os
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from uuid import UUID
 
 from src.domain.asset import Asset, AssetType, Exchange, Market
+from src.domain.financial_statement import FinancialStatement, FinancialStatementInfo
 from src.domain.ids import generate_uuid7
+from src.domain.index_price import IndexCode, IndexPrice, IndexPriceInfo
 from src.domain.market_price import DailyPriceInfo, MarketPrice
+from src.domain.market_regime import MarketRegime, MarketRegimeInfo
 from src.domain.password_reset import PasswordResetToken
 from src.domain.user import User
 
@@ -89,6 +93,13 @@ class FakeAssetRepository:
             None,
         )
 
+    async def list_active(self, market: Market, asset_type: AssetType) -> list[Asset]:
+        return [
+            a
+            for a in self.assets
+            if a.market == market and a.asset_type == asset_type and a.is_active
+        ]
+
     async def upsert_active(
         self,
         *,
@@ -114,6 +125,8 @@ class FakeAssetRepository:
             asset_type=asset_type,
             exchange=exchange,
             is_active=True,
+            is_managed=False,
+            is_alert=False,
             created_at=now,
             updated_at=now,
         )
@@ -162,6 +175,189 @@ class FakeMarketPriceRepository:
             halted=bar.halted,
         )
         self.prices.append(row)
+        return row
+
+    async def get_market_caps(self, *, trade_date: date) -> dict[UUID, Decimal | None]:
+        return {p.asset_id: p.market_cap for p in self.prices if p.date == trade_date}
+
+    async def get_avg_trading_value(self, *, as_of_date: date, window: int) -> dict[UUID, Decimal]:
+        # Mirrors SqlAlchemyMarketPriceRepository.get_avg_trading_value's
+        # point-in-time semantics: bound to as_of_date first, then pick the
+        # `window` most recent *actual* trading dates within that bound.
+        eligible_dates = sorted({p.date for p in self.prices if p.date <= as_of_date}, reverse=True)
+        recent_dates = set(eligible_dates[:window]) if window > 0 else set()
+
+        by_asset: dict[UUID, list[Decimal]] = {}
+        for p in self.prices:
+            if p.date in recent_dates:
+                by_asset.setdefault(p.asset_id, []).append(p.trading_value)
+
+        return {
+            asset_id: sum(values, start=Decimal(0)) / len(values)
+            for asset_id, values in by_asset.items()
+        }
+
+
+class FakeIndexPriceRepository:
+    """In-memory ``IndexPriceRepository`` — same role as ``FakeMarketPriceRepository``.
+
+    Mirrors ``SqlAlchemyIndexPriceRepository``'s ``(index_code, date)``
+    in-place update semantics: re-upserting the same key updates the
+    existing row rather than appending a duplicate.
+    """
+
+    def __init__(self) -> None:
+        self.prices: list[IndexPrice] = []
+
+    async def upsert(self, *, bar: IndexPriceInfo) -> IndexPrice:
+        existing = next(
+            (p for p in self.prices if p.index_code == bar.index_code and p.date == bar.date),
+            None,
+        )
+        if existing is not None:
+            existing.open = bar.open
+            existing.high = bar.high
+            existing.low = bar.low
+            existing.close = bar.close
+            existing.volume = bar.volume
+            existing.trading_value = bar.trading_value
+            return existing
+
+        row = IndexPrice(
+            index_code=bar.index_code,
+            date=bar.date,
+            open=bar.open,
+            high=bar.high,
+            low=bar.low,
+            close=bar.close,
+            volume=bar.volume,
+            trading_value=bar.trading_value,
+        )
+        self.prices.append(row)
+        return row
+
+    async def get_recent(
+        self, *, index_code: IndexCode, end_date: date, limit: int
+    ) -> list[IndexPriceInfo]:
+        matching = sorted(
+            (p for p in self.prices if p.index_code == index_code and p.date <= end_date),
+            key=lambda p: p.date,
+        )
+        window = matching[-limit:] if limit > 0 else []
+        return [
+            IndexPriceInfo(
+                index_code=p.index_code,
+                date=p.date,
+                open=p.open,
+                high=p.high,
+                low=p.low,
+                close=p.close,
+                volume=p.volume,
+                trading_value=p.trading_value,
+            )
+            for p in window
+        ]
+
+
+class FakeMarketRegimeRepository:
+    """In-memory ``MarketRegimeRepository`` — same role as ``FakeIndexPriceRepository``.
+
+    Mirrors ``SqlAlchemyMarketRegimeRepository``'s ``regime_date`` in-place
+    update semantics: re-upserting the same key updates the existing row
+    rather than appending a duplicate.
+    """
+
+    def __init__(self) -> None:
+        self.regimes: list[MarketRegime] = []
+
+    async def upsert(self, *, regime: MarketRegimeInfo) -> MarketRegime:
+        existing = next(
+            (r for r in self.regimes if r.regime_date == regime.regime_date), None
+        )
+        if existing is not None:
+            existing.regime = regime.regime
+            existing.kospi_close = regime.kospi_close
+            existing.kospi_ma200 = regime.kospi_ma200
+            existing.vkospi = regime.vkospi
+            existing.kospi_volatility_20d = regime.kospi_volatility_20d
+            existing.market_shock = regime.market_shock
+            existing.signals = regime.signals
+            return existing
+
+        row = MarketRegime(
+            regime_date=regime.regime_date,
+            regime=regime.regime,
+            kospi_close=regime.kospi_close,
+            kospi_ma200=regime.kospi_ma200,
+            vkospi=regime.vkospi,
+            kospi_volatility_20d=regime.kospi_volatility_20d,
+            market_shock=regime.market_shock,
+            signals=regime.signals,
+        )
+        self.regimes.append(row)
+        return row
+
+    async def get_recent(self, *, before_date: date, limit: int) -> list[MarketRegime]:
+        matching = sorted(
+            (r for r in self.regimes if r.regime_date < before_date),
+            key=lambda r: r.regime_date,
+            reverse=True,
+        )
+        return matching[:limit] if limit > 0 else []
+
+
+class FakeFinancialStatementRepository:
+    """In-memory ``FinancialStatementRepository`` — same role as ``FakeIndexPriceRepository``.
+
+    Mirrors ``SqlAlchemyFinancialStatementRepository``'s
+    ``(asset_id, fiscal_year, fiscal_quarter)`` in-place update semantics,
+    including a 정정공시 replacing ``rcept_no``/``disclosed_at``/line items
+    on an already-existing row.
+    """
+
+    def __init__(self) -> None:
+        self.statements: list[FinancialStatement] = []
+
+    async def upsert(
+        self, *, asset_id: UUID, statement: FinancialStatementInfo
+    ) -> FinancialStatement:
+        existing = next(
+            (
+                s
+                for s in self.statements
+                if s.asset_id == asset_id
+                and s.fiscal_year == statement.fiscal_year
+                and s.fiscal_quarter == statement.fiscal_quarter
+            ),
+            None,
+        )
+        if existing is not None:
+            existing.consolidated_type = statement.consolidated_type
+            existing.revenue = statement.revenue
+            existing.operating_income = statement.operating_income
+            existing.net_income = statement.net_income
+            existing.total_assets = statement.total_assets
+            existing.total_liabilities = statement.total_liabilities
+            existing.total_equity = statement.total_equity
+            existing.disclosed_at = statement.disclosed_at
+            existing.rcept_no = statement.rcept_no
+            return existing
+
+        row = FinancialStatement(
+            asset_id=asset_id,
+            fiscal_year=statement.fiscal_year,
+            fiscal_quarter=statement.fiscal_quarter,
+            consolidated_type=statement.consolidated_type,
+            revenue=statement.revenue,
+            operating_income=statement.operating_income,
+            net_income=statement.net_income,
+            total_assets=statement.total_assets,
+            total_liabilities=statement.total_liabilities,
+            total_equity=statement.total_equity,
+            disclosed_at=statement.disclosed_at,
+            rcept_no=statement.rcept_no,
+        )
+        self.statements.append(row)
         return row
 
 

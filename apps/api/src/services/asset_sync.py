@@ -12,17 +12,14 @@ upsert.
 
 from __future__ import annotations
 
-from src.domain.asset import AssetRepository, AssetType, DataSource, Market
+from src.domain.asset import AssetRepository, DataSource, Market
 
 
 async def sync_assets(data_source: DataSource, asset_repo: AssetRepository) -> int:
     """Upsert every ticker from ``data_source`` into ``asset_repo``; return the count processed.
 
-    ``TickerInfo`` currently only describes stock tickers (no ``asset_type``
-    field), so every row is upserted as ``AssetType.STOCK`` — ETF master
-    collection needs its own ``DataSource`` method and is out of scope here.
-    Likewise every row uses ``Market.KR``, the only market this data source
-    covers today.
+    Every row uses ``Market.KR``, the only market this data source covers
+    today; ``asset_type`` (STOCK/ETF) comes from ``TickerInfo`` itself.
     """
     tickers = await data_source.list_tickers()
     for ticker in tickers:
@@ -30,7 +27,7 @@ async def sync_assets(data_source: DataSource, asset_repo: AssetRepository) -> i
             ticker=ticker.ticker,
             name=ticker.name,
             market=Market.KR,
-            asset_type=AssetType.STOCK,
+            asset_type=ticker.asset_type,
             exchange=ticker.exchange,
         )
     return len(tickers)

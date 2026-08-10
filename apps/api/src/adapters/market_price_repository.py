@@ -7,9 +7,11 @@ import") — same structure as ``SqlAlchemyAssetRepository``.
 
 from __future__ import annotations
 
+from datetime import date
+from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -82,3 +84,30 @@ class SqlAlchemyMarketPriceRepository:
             return existing
         await self._session.refresh(row)
         return row
+
+    async def get_market_caps(self, *, trade_date: date) -> dict[UUID, Decimal | None]:
+        result = await self._session.execute(
+            select(MarketPrice.asset_id, MarketPrice.market_cap).where(
+                MarketPrice.date == trade_date
+            )
+        )
+        return dict(result.tuples().all())
+
+    async def get_avg_trading_value(self, *, as_of_date: date, window: int) -> dict[UUID, Decimal]:
+        # Bound to as_of_date first (look-ahead prevention), then pick the
+        # `window` most recent *actual* trading days within that bound —
+        # a single query (CTE + IN), not one round trip per asset.
+        recent_dates = (
+            select(MarketPrice.date)
+            .where(MarketPrice.date <= as_of_date)
+            .distinct()
+            .order_by(MarketPrice.date.desc())
+            .limit(window)
+            .cte("recent_trading_dates")
+        )
+        result = await self._session.execute(
+            select(MarketPrice.asset_id, func.avg(MarketPrice.trading_value))
+            .where(MarketPrice.date.in_(select(recent_dates.c.date)))
+            .group_by(MarketPrice.asset_id)
+        )
+        return dict(result.tuples().all())

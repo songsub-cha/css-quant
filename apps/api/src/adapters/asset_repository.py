@@ -26,6 +26,16 @@ class SqlAlchemyAssetRepository:
         )
         return result.scalar_one_or_none()
 
+    async def list_active(self, market: Market, asset_type: AssetType) -> list[Asset]:
+        result = await self._session.execute(
+            select(Asset).where(
+                Asset.market == market,
+                Asset.asset_type == asset_type,
+                Asset.is_active.is_(True),
+            )
+        )
+        return list(result.scalars().all())
+
     async def upsert_active(
         self,
         *,
