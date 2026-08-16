@@ -18,6 +18,7 @@ same pattern as ``AssetRepository``/``sync_assets`` (issue #27/#29).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Protocol
@@ -68,6 +69,29 @@ class PriceCheckBar(BaseModel):
     close: Decimal
     high: Decimal
     low: Decimal
+
+
+class PriceBar(BaseModel):
+    """One asset's already-persisted daily bar, read-only shape (SoT A6.1 factor calculation).
+
+    ``MarketPriceRepository.get_price_history``'s output — unlike
+    ``DailyPriceInfo``, this carries no ``ticker``: the caller
+    (``src.engine.factor_calculation``) already indexes bars by
+    ``asset_id`` (the dict key ``get_price_history`` groups by), so a
+    per-bar ticker would be redundant.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    date: date
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    adjusted_close: Decimal
+    volume: int
+    trading_value: Decimal
+    halted: bool
 
 
 class PriceDataSource(Protocol):
@@ -138,6 +162,24 @@ class MarketPriceRepository(Protocol):
         coverage/integrity checks (called with ``trade_date=as_of_date``) and
         to fetch the previous trading day's closes the ±30% move check
         compares against (called with ``trade_date=`` the prior session).
+        """
+        ...
+
+    async def get_price_history(
+        self, *, asset_ids: Sequence[UUID], as_of_date: date, window: int
+    ) -> dict[UUID, list[PriceBar]]:
+        """Each requested asset's trailing ``window`` trading days up to ``as_of_date``.
+
+        Same point-in-time bounding as ``get_avg_trading_value``: rows are
+        bounded to ``date <= as_of_date`` first (look-ahead prevention),
+        then the ``window`` most recent *actual* market-wide trading dates
+        within that bound are selected — not a calendar span, and not
+        per-asset (an asset missing a bar on a market-wide trading day
+        simply contributes fewer bars, rather than shifting its own
+        window). Each asset's list is ordered oldest-first (matching
+        ``IndexPriceRepository.get_recent``'s convention), ready for the
+        engine's trailing-window math. An ``asset_id`` with no rows in
+        range is absent from the returned dict.
         """
         ...
 

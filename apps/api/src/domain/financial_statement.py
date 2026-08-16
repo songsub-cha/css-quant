@@ -28,6 +28,7 @@ figures, which this module provides).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -86,6 +87,34 @@ class FinancialStatementInfo(BaseModel):
     rcept_no: str
 
 
+class DisclosedStatement(BaseModel):
+    """One already-persisted, already-disclosed quarterly/annual statement (SoT A6.1/A6.7.2).
+
+    ``FinancialStatementRepository.get_statement_history``'s read-only output
+    shape — unlike ``FinancialStatementInfo``, this carries no
+    ``ticker``/``consolidated_type``/``rcept_no``: the caller
+    (``src.engine.factor_calculation.isolate_quarterly_income``) only needs
+    the six line items plus the period they cover and when they were
+    disclosed. ``consolidated_type`` is omitted because
+    ``financial_statements``' primary key is ``(asset_id, fiscal_year,
+    fiscal_quarter)`` alone (issue #51 already resolved CFS/OFS at
+    collection time) — at most one row exists per period, so there is
+    nothing to disambiguate here.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    fiscal_year: int
+    fiscal_quarter: FiscalQuarter
+    revenue: Decimal | None
+    operating_income: Decimal | None
+    net_income: Decimal | None
+    total_assets: Decimal | None
+    total_liabilities: Decimal | None
+    total_equity: Decimal | None
+    disclosed_at: date
+
+
 class FinancialStatementDataSource(Protocol):
     """Port for DART quarterly financial statement collection.
 
@@ -116,6 +145,26 @@ class FinancialStatementRepository(Protocol):
         """Update the ``(asset_id, statement.fiscal_year, statement.fiscal_quarter)`` row if
         one exists (including replacing ``rcept_no``/``disclosed_at``/line items on a
         정정공시 restatement), else insert a new one.
+        """
+        ...
+
+    async def get_statement_history(
+        self, *, asset_ids: Sequence[UUID], as_of_date: date
+    ) -> dict[UUID, list[DisclosedStatement]]:
+        """Every requested asset's disclosed statements with ``disclosed_at <= as_of_date``.
+
+        Structural SoT A6.7.2 look-ahead bound: a statement disclosed after
+        ``as_of_date`` can never enter the returned dict, so a caller
+        (``src.engine.factor_calculation``'s quarterly-differencing/TTM
+        math) cannot accidentally use financial data the market did not yet
+        have on ``as_of_date`` — same bounding rationale as
+        ``MarketPriceRepository.get_avg_trading_value``'s ``date <=
+        as_of_date``. No ordering is guaranteed within each asset's list;
+        the caller re-sorts by an explicit ``FiscalQuarter`` rank (a
+        ``StrEnum`` member's alphabetical order is not its chronological
+        order). An ``asset_id`` with no disclosed statements in range is
+        absent from the returned dict — callers must treat a missing key as
+        "no data", not zero.
         """
         ...
 

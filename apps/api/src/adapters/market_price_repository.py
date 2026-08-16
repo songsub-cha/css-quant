@@ -7,6 +7,7 @@ import") — same structure as ``SqlAlchemyAssetRepository``.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -15,7 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.market_price import DailyPriceInfo, MarketPrice, PriceCheckBar
+from src.domain.market_price import DailyPriceInfo, MarketPrice, PriceBar, PriceCheckBar
 
 
 class SqlAlchemyMarketPriceRepository:
@@ -122,3 +123,46 @@ class SqlAlchemyMarketPriceRepository:
             asset_id: PriceCheckBar(close=close, high=high, low=low)
             for asset_id, close, high, low in result.tuples().all()
         }
+
+    async def get_price_history(
+        self, *, asset_ids: Sequence[UUID], as_of_date: date, window: int
+    ) -> dict[UUID, list[PriceBar]]:
+        if not asset_ids:
+            return {}
+
+        # Market-wide recent trading dates (not per-asset), same CTE
+        # rationale as get_avg_trading_value: bound to as_of_date first
+        # (look-ahead prevention), then pick the `window` most recent
+        # *actual* trading days within that bound.
+        recent_dates = (
+            select(MarketPrice.date)
+            .where(MarketPrice.date <= as_of_date)
+            .distinct()
+            .order_by(MarketPrice.date.desc())
+            .limit(window)
+            .cte("recent_trading_dates")
+        )
+        result = await self._session.execute(
+            select(MarketPrice)
+            .where(
+                MarketPrice.asset_id.in_(asset_ids),
+                MarketPrice.date.in_(select(recent_dates.c.date)),
+            )
+            .order_by(MarketPrice.asset_id, MarketPrice.date.asc())
+        )
+        by_asset: dict[UUID, list[PriceBar]] = {}
+        for row in result.scalars().all():
+            by_asset.setdefault(row.asset_id, []).append(
+                PriceBar(
+                    date=row.date,
+                    open=row.open,
+                    high=row.high,
+                    low=row.low,
+                    close=row.close,
+                    adjusted_close=row.adjusted_close,
+                    volume=row.volume,
+                    trading_value=row.trading_value,
+                    halted=row.halted,
+                )
+            )
+        return by_asset
