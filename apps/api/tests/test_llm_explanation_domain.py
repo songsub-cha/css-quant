@@ -136,6 +136,16 @@ def test_validate_explanation_output_rejects_forbidden_word() -> None:
     assert validate_explanation_output(raw) is None
 
 
+def test_validate_explanation_output_rejects_buy_sell_korean_words() -> None:
+    raw = '{"summary": "최근 매수세가 강합니다.", "positive_reasons": [], "risk_reasons": []}'
+
+    assert validate_explanation_output(raw) is None
+
+    raw_sell = '{"summary": "최근 매도세가 강합니다.", "positive_reasons": [], "risk_reasons": []}'
+
+    assert validate_explanation_output(raw_sell) is None
+
+
 def test_validate_explanation_output_rejects_too_many_reasons() -> None:
     raw = (
         '{"summary": "요약", "positive_reasons": ["a", "b", "c", "d"], "risk_reasons": []}'

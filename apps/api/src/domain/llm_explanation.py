@@ -51,7 +51,7 @@ CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 # 가드레일은 이 상수를 호출 1건의 예상 비용으로 근사해 누적 합산한다.
 ESTIMATED_COST_PER_CALL_USD = Decimal("0.001")
 
-_FORBIDDEN_WORDS = ("점수", "등급", "buy", "sell")
+_FORBIDDEN_WORDS = ("점수", "등급", "buy", "sell", "매수", "매도")
 _MAX_REASONS = 3
 
 # 신규 편입 종목(전일 점수 없음)은 항상 최우선순위로 선별한다 — 변동폭
@@ -165,8 +165,8 @@ def build_explanation_prompt(candidate: LLMExplanationInput) -> str:
 
     Constraints baked into the prompt text itself (SoT A6.1 5 — no
     real function-calling schema enforcement, see module docstring):
-    Korean only, never use the words 점수/등급/BUY/SELL, never invent a
-    number not present in the input below, no buy/sell/hold action
+    Korean only, never use the words 점수/등급/BUY/SELL/매수/매도, never invent
+    a number not present in the input below, no buy/sell/hold action
     recommendations, and explain any jargon in plain language on first use
     (SoT A6.12). The model must reply with exactly one JSON object with keys
     ``summary`` (1-2 sentences), ``positive_reasons`` (<=3 items),
@@ -178,7 +178,7 @@ def build_explanation_prompt(candidate: LLMExplanationInput) -> str:
         delta_text = str(candidate.score_delta)
     return (
         "당신은 주식 투자 초보자를 위한 설명가입니다. 아래 지표만 근거로 삼아 한국어로 "
-        "설명을 작성하세요. 다음 단어는 절대 사용하지 마세요: 점수, 등급, BUY, SELL. "
+        "설명을 작성하세요. 다음 단어는 절대 사용하지 마세요: 점수, 등급, BUY, SELL, 매수, 매도. "
         "아래에 주어지지 않은 새로운 숫자를 만들어내지 마세요. 매수/매도/보유 등 행동을 "
         "추천하지 마세요. 전문용어를 처음 쓸 때는 괄호 안에 짧은 풀어쓰기를 덧붙이세요.\n\n"
         f"자산 ID: {candidate.asset_id}\n"
