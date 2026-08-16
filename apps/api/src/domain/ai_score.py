@@ -12,11 +12,14 @@ percentile normalization, direction reversal, weighted sum) lives in
 ``AssetFactorRepository``/``MarketRegimeRepository``).
 
 LLM-authored fields (``summary``/``positive_reasons``/``risk_reasons``/
-``llm_model``/``llm_generated_at``) are always ``None`` from this pipeline —
-SoT A6.1 stage 5 (LLM explanation generation) needs its own cost-guardrail
-infrastructure (``LLM_DAILY_CALL_LIMIT``/``LLM_DAILY_USD_LIMIT``) and is a
-separate follow-up issue, the same stage-by-stage split #56 (stage 1) and
-#58 (stage 2) already used.
+``llm_model``/``llm_generated_at``) start out ``None`` from this pipeline —
+``src.workers.score_calculation.calculate_scores`` never sets them.
+SoT A6.1 stage 5 (LLM explanation generation) fills them in a separate pass,
+``src.workers.llm_explanation.generate_llm_explanations`` (issue #64), which
+re-upserts only those five columns via the same ``AssetScoreRepository.upsert``
+port this module defines, preserving the score/regime columns
+``calculate_scores`` already wrote (see ``get_by_date`` below, the read side
+that pass depends on).
 
 ``regime`` reuses ``src.domain.market_regime.RegimeStatus`` rather than a new
 enum — the DB column maps to the same ``regime_status`` Postgres type
@@ -30,6 +33,7 @@ issue #39's scope — this module, plus ``src.engine.score_calculation`` and
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Protocol
@@ -135,6 +139,18 @@ class AssetScoreRepository(Protocol):
     async def upsert(self, *, score: AssetScoreInfo) -> AssetScore:
         """Update the ``(score.asset_id, score.score_date)`` row if one exists,
         else insert a new one.
+        """
+        ...
+
+    async def get_by_date(self, *, score_date: date) -> Sequence[AssetScore]:
+        """Return every scored asset for ``score_date`` — own-row lookup, no
+        calendar arithmetic (that lives in ``src.adapters.trading_calendar``).
+
+        ``src.workers.llm_explanation.generate_llm_explanations`` calls this
+        twice: once for the day being explained, once for the previous
+        *trading* day (resolved via ``get_krx_trading_days``, not a bare
+        ``score_date - 1`` calendar subtraction) to compute each asset's
+        score delta.
         """
         ...
 
