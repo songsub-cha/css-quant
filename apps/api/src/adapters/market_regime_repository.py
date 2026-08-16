@@ -80,3 +80,9 @@ class SqlAlchemyMarketRegimeRepository:
             .limit(limit)
         )
         return list(result.scalars().all())
+
+    async def get_by_date(self, *, regime_date: date) -> MarketRegime | None:
+        result = await self._session.execute(
+            select(MarketRegime).where(MarketRegime.regime_date == regime_date)
+        )
+        return result.scalar_one_or_none()
