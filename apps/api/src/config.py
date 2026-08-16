@@ -132,6 +132,13 @@ class Settings(BaseSettings):
     # 5개 팩터 중 3개 이상 전부 결측이면 해당 종목 점수 보류 (SoT A6.1 3).
     ai_score_missing_factor_hold_threshold: int = 3
 
+    # SoT A6.1 5: LLM 설명 생성 비용 가드레일. src.workers.llm_explanation이
+    # 유일한 소비자 — 일일 호출 상한 초과분은 선별 단계에서, 일일 예상
+    # 비용(USD) 초과분은 호출 직전에 스킵된다(둘 다 점수 저장 자체는 막지
+    # 않음, 설명만 생략).
+    llm_daily_call_limit: int = 1000
+    llm_daily_usd_limit: Decimal = Decimal("5")
+
     @field_validator("database_url", mode="before")
     @classmethod
     def _normalize_database_url(cls, value: str) -> str:

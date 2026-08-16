@@ -9,6 +9,8 @@ DTO (``AssetScoreInfo``).
 
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -84,3 +86,9 @@ class SqlAlchemyAssetScoreRepository:
             return existing
         await self._session.refresh(row)
         return row
+
+    async def get_by_date(self, *, score_date: date) -> list[AssetScore]:
+        result = await self._session.execute(
+            select(AssetScore).where(AssetScore.score_date == score_date)
+        )
+        return list(result.scalars().all())

@@ -36,6 +36,7 @@ from src.domain.financial_statement import (
 )
 from src.domain.ids import generate_uuid7
 from src.domain.index_price import IndexCode, IndexPrice, IndexPriceInfo
+from src.domain.llm_explanation import LLMExplanationResult
 from src.domain.market_price import DailyPriceInfo, MarketPrice, PriceBar
 from src.domain.market_regime import MarketRegime, MarketRegimeInfo
 from src.domain.password_reset import PasswordResetToken
@@ -552,6 +553,27 @@ class FakeAssetScoreRepository:
         )
         self.scores.append(row)
         return row
+
+    async def get_by_date(self, *, score_date: date) -> list[AssetScore]:
+        return [s for s in self.scores if s.score_date == score_date]
+
+
+class FakeLLMExplanationCache:
+    """In-memory ``LLMExplanationCache`` — same role as ``FakeIndexPriceRepository``.
+
+    Ignores ``ttl_seconds`` (no expiry) — tests only assert hit/miss
+    behavior, never TTL expiry (that is ``RedisLLMExplanationCache``'s to
+    exercise against a real Redis container).
+    """
+
+    def __init__(self) -> None:
+        self._entries: dict[str, LLMExplanationResult] = {}
+
+    async def get(self, key: str) -> LLMExplanationResult | None:
+        return self._entries.get(key)
+
+    async def set(self, key: str, result: LLMExplanationResult, *, ttl_seconds: int) -> None:
+        self._entries[key] = result
 
 
 class FakePasswordResetTokenRepository:
