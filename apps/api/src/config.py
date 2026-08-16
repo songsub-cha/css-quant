@@ -115,6 +115,23 @@ class Settings(BaseSettings):
     universe_avg_trading_value_min: Decimal = Decimal("1000000000")  # 20일 평균 거래대금 10억
     universe_min_listed_days: int = 60  # 상장 60일 이상
 
+    # SoT A6.2: regime-specific factor weights (issue #62 plan) — env-var,
+    # same pattern as the universe thresholds above, not a DB settings
+    # table. src.workers.score_calculation is the only caller (composes
+    # these into src.domain.ai_score.RegimeWeightProfile).
+    ai_score_weight_normal_momentum: Decimal = Decimal("0.35")
+    ai_score_weight_normal_quality: Decimal = Decimal("0.25")
+    ai_score_weight_normal_value: Decimal = Decimal("0.20")
+    ai_score_weight_normal_liquidity: Decimal = Decimal("0.10")
+    ai_score_weight_normal_risk: Decimal = Decimal("0.10")
+    ai_score_weight_defensive_momentum: Decimal = Decimal("0.15")
+    ai_score_weight_defensive_quality: Decimal = Decimal("0.35")
+    ai_score_weight_defensive_value: Decimal = Decimal("0.20")
+    ai_score_weight_defensive_liquidity: Decimal = Decimal("0.10")
+    ai_score_weight_defensive_risk: Decimal = Decimal("0.20")
+    # 5개 팩터 중 3개 이상 전부 결측이면 해당 종목 점수 보류 (SoT A6.1 3).
+    ai_score_missing_factor_hold_threshold: int = 3
+
     @field_validator("database_url", mode="before")
     @classmethod
     def _normalize_database_url(cls, value: str) -> str:

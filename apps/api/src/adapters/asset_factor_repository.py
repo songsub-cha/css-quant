@@ -9,6 +9,8 @@ DTO (``AssetFactorInfo``).
 
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -101,3 +103,9 @@ class SqlAlchemyAssetFactorRepository:
             return existing
         await self._session.refresh(row)
         return row
+
+    async def get_by_factor_date(self, *, factor_date: date) -> list[AssetFactor]:
+        result = await self._session.execute(
+            select(AssetFactor).where(AssetFactor.factor_date == factor_date)
+        )
+        return list(result.scalars().all())

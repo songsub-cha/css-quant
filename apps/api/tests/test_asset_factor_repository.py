@@ -226,3 +226,26 @@ def test_upsert_concurrent_insert_race_recovers_via_requery_and_update(
             assert len(rows) == 1
 
     asyncio.run(_run())
+
+
+def test_get_by_factor_date_returns_only_that_days_rows(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            asset_a = await _seed_asset(session, ticker="005930")
+            asset_b = await _seed_asset(session, ticker="000660")
+            repo = SqlAlchemyAssetFactorRepository(session)
+
+            target_date = date(2026, 8, 7)
+            other_date = date(2026, 8, 6)
+            await repo.upsert(factor=_factor(asset_a, target_date))
+            await repo.upsert(factor=_factor(asset_b, target_date))
+            await repo.upsert(factor=_factor(asset_a, other_date))
+
+            rows = await repo.get_by_factor_date(factor_date=target_date)
+
+            assert {r.asset_id for r in rows} == {asset_a, asset_b}
+            assert all(r.factor_date == target_date for r in rows)
+
+    asyncio.run(_run())

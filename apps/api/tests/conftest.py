@@ -26,6 +26,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
+from src.domain.ai_score import AssetScore, AssetScoreInfo
 from src.domain.asset import Asset, AssetType, Exchange, Market
 from src.domain.asset_factor import AssetFactor, AssetFactorInfo
 from src.domain.financial_statement import (
@@ -341,6 +342,9 @@ class FakeMarketRegimeRepository:
         )
         return matching[:limit] if limit > 0 else []
 
+    async def get_by_date(self, *, regime_date: date) -> MarketRegime | None:
+        return next((r for r in self.regimes if r.regime_date == regime_date), None)
+
 
 class FakeFinancialStatementRepository:
     """In-memory ``FinancialStatementRepository`` — same role as ``FakeIndexPriceRepository``.
@@ -489,6 +493,64 @@ class FakeAssetFactorRepository:
             financial_data_as_of=factor.financial_data_as_of,
         )
         self.factors.append(row)
+        return row
+
+    async def get_by_factor_date(self, *, factor_date: date) -> list[AssetFactor]:
+        return [f for f in self.factors if f.factor_date == factor_date]
+
+
+class FakeAssetScoreRepository:
+    """In-memory ``AssetScoreRepository`` — same role as ``FakeAssetFactorRepository``.
+
+    Mirrors ``SqlAlchemyAssetScoreRepository``'s ``(asset_id, score_date)``
+    in-place update semantics: re-upserting the same key updates the
+    existing row rather than appending a duplicate.
+    """
+
+    def __init__(self) -> None:
+        self.scores: list[AssetScore] = []
+
+    async def upsert(self, *, score: AssetScoreInfo) -> AssetScore:
+        existing = next(
+            (
+                s
+                for s in self.scores
+                if s.asset_id == score.asset_id and s.score_date == score.score_date
+            ),
+            None,
+        )
+        if existing is not None:
+            existing.regime = score.regime
+            existing.total_score = score.total_score
+            existing.momentum_score = score.momentum_score
+            existing.quality_score = score.quality_score
+            existing.value_score = score.value_score
+            existing.liquidity_score = score.liquidity_score
+            existing.risk_score = score.risk_score
+            existing.summary = score.summary
+            existing.positive_reasons = score.positive_reasons
+            existing.risk_reasons = score.risk_reasons
+            existing.llm_model = score.llm_model
+            existing.llm_generated_at = score.llm_generated_at
+            return existing
+
+        row = AssetScore(
+            asset_id=score.asset_id,
+            score_date=score.score_date,
+            regime=score.regime,
+            total_score=score.total_score,
+            momentum_score=score.momentum_score,
+            quality_score=score.quality_score,
+            value_score=score.value_score,
+            liquidity_score=score.liquidity_score,
+            risk_score=score.risk_score,
+            summary=score.summary,
+            positive_reasons=score.positive_reasons,
+            risk_reasons=score.risk_reasons,
+            llm_model=score.llm_model,
+            llm_generated_at=score.llm_generated_at,
+        )
+        self.scores.append(row)
         return row
 
 

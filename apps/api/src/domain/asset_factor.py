@@ -108,6 +108,13 @@ class AssetFactorRepository(Protocol):
         """
         ...
 
+    async def get_by_factor_date(self, *, factor_date: date) -> list[AssetFactor]:
+        """Return every row for ``factor_date`` — one day's already-filtered universe
+        (SoT A6.1 stage 1 gates which assets have a row at all, see this module's
+        docstring). ``src.workers.score_calculation`` uses this as stage 3's input.
+        """
+        ...
+
 
 class AssetFactor(Base):
     """One asset's one-day raw factor snapshot (SoT A6.1/C3 — asset_factors).
