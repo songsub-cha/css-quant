@@ -108,6 +108,10 @@ class FakeAssetRepository:
             if a.market == market and a.asset_type == asset_type and a.is_active
         ]
 
+    async def list_by_ids(self, asset_ids: Sequence[UUID]) -> list[Asset]:
+        asset_id_set = set(asset_ids)
+        return [a for a in self.assets if a.id in asset_id_set]
+
     async def upsert_active(
         self,
         *,
@@ -556,6 +560,10 @@ class FakeAssetScoreRepository:
 
     async def get_by_date(self, *, score_date: date) -> list[AssetScore]:
         return [s for s in self.scores if s.score_date == score_date]
+
+    async def get_latest_score_date(self) -> date | None:
+        dates = {s.score_date for s in self.scores}
+        return max(dates) if dates else None
 
 
 class FakeLLMExplanationCache:

@@ -192,6 +192,25 @@ def test_upsert_with_nonexistent_asset_id_raises_integrity_error(
     asyncio.run(_run())
 
 
+def test_get_latest_score_date_returns_most_recent_date(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            asset_id = await _seed_asset(session)
+            repo = SqlAlchemyAssetScoreRepository(session)
+
+            await repo.upsert(score=_score(asset_id, date(2026, 8, 14)))
+            await repo.upsert(score=_score(asset_id, date(2026, 8, 17)))
+            await repo.upsert(score=_score(asset_id, date(2026, 8, 15)))
+
+            latest = await repo.get_latest_score_date()
+
+            assert latest == date(2026, 8, 17)
+
+    asyncio.run(_run())
+
+
 def test_upsert_concurrent_insert_race_recovers_via_requery_and_update(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:

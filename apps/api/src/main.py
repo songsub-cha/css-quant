@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from src.api.v1.auth import router as auth_router
 from src.api.v1.health import router as health_router
+from src.api.v1.scores import router as scores_router
 from src.errors import register_exception_handlers
 
 
@@ -12,6 +13,7 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(scores_router)
     return app
 
 

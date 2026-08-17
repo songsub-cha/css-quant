@@ -154,6 +154,15 @@ class AssetScoreRepository(Protocol):
         """
         ...
 
+    async def get_latest_score_date(self) -> date | None:
+        """Return the most recent ``score_date`` with at least one row, or
+        ``None`` if the pipeline has never run (cold start).
+
+        ``src.services.scores.list_ranked_scores`` uses this to resolve
+        "latest" when a caller doesn't pin a specific ``score_date``.
+        """
+        ...
+
 
 class AssetScore(Base):
     """One asset's one-day AI score row (SoT A6.1 stage 6/C3 — ``ai_scores``).
