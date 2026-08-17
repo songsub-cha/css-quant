@@ -216,6 +216,50 @@ def test_list_active_returns_only_matching_market_and_asset_type(
     asyncio.run(_run())
 
 
+def test_list_by_ids_returns_matching_rows_including_inactive(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            repo = SqlAlchemyAssetRepository(session)
+            active = await repo.upsert_active(
+                ticker="105560",
+                name="KB금융",
+                market=Market.KR,
+                asset_type=AssetType.STOCK,
+                exchange=Exchange.KOSPI,
+            )
+            inactive = await repo.upsert_active(
+                ticker="055550",
+                name="신한지주",
+                market=Market.KR,
+                asset_type=AssetType.STOCK,
+                exchange=Exchange.KOSPI,
+            )
+            await session.execute(
+                sa.update(Asset).where(Asset.id == inactive.id).values(is_active=False)
+            )
+            await session.commit()
+
+            found = await repo.list_by_ids([active.id, inactive.id])
+
+            assert {a.id for a in found} == {active.id, inactive.id}
+
+    asyncio.run(_run())
+
+
+def test_list_by_ids_with_empty_input_returns_empty_list(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            repo = SqlAlchemyAssetRepository(session)
+            found = await repo.list_by_ids([])
+            assert found == []
+
+    asyncio.run(_run())
+
+
 def test_list_active_excludes_inactive_rows(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:

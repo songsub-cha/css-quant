@@ -19,6 +19,7 @@ scope; this one only adds the table.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Protocol
@@ -31,6 +32,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from src.domain.base import Base
 from src.domain.ids import generate_uuid7
+
+ASSET_ID_PREFIX = "ast"
 
 
 class Exchange(StrEnum):
@@ -85,6 +88,16 @@ class AssetRepository(Protocol):
 
     async def list_active(self, market: Market, asset_type: AssetType) -> list[Asset]:
         """List every active row for ``(market, asset_type)`` — e.g. STOCK-only, excluding ETF."""
+        ...
+
+    async def list_by_ids(self, asset_ids: Sequence[UUID]) -> list[Asset]:
+        """Bulk lookup by primary key, active or not.
+
+        ``src.services.scores.list_ranked_scores`` uses this to resolve
+        ticker/name for a set of ``ai_scores`` rows. Deliberately not scoped
+        to active-only (unlike every other method here): a delisted asset's
+        historical scores must still resolve to a name, not vanish.
+        """
         ...
 
     async def upsert_active(

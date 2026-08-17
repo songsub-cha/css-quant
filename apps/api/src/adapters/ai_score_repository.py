@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -92,3 +92,7 @@ class SqlAlchemyAssetScoreRepository:
             select(AssetScore).where(AssetScore.score_date == score_date)
         )
         return list(result.scalars().all())
+
+    async def get_latest_score_date(self) -> date | None:
+        result = await self._session.execute(select(func.max(AssetScore.score_date)))
+        return result.scalar_one_or_none()

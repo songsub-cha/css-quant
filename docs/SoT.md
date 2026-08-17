@@ -455,7 +455,7 @@ DB 스키마·환경변수·크론 추가 없음 — 정적 파일과 기존 잡
 
 ## B4. 표준
 
-1. **ID**: 모든 PK UUID v7. 외부 노출 ID는 prefix (`usr_`, `str_`, `bt_`, `ord_`, `oc_`, `pf_`).
+1. **ID**: 모든 PK UUID v7. 외부 노출 ID는 prefix (`usr_`, `str_`, `bt_`, `ord_`, `oc_`, `pf_`, `ast_`).
 2. **시간**: DB는 UTC(timestamptz), API는 ISO 8601 UTC, 표시는 KST. 거래일/장중 판단은 `exchange_calendars` XKRX.
 3. **정밀도**: 금액 `Decimal`/`numeric(20,4)` — float 금지. 수량 정수. 환율 `numeric(20,8)`.
 4. **API**: 성공은 도메인 객체 그대로(래핑 없음), 에러는 RFC 7807 + 안정적 `code`(UPPER_SNAKE_CASE, `errors.py` enum 단일 정의). 페이지네이션 cursor 기반.

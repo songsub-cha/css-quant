@@ -19,6 +19,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from src.adapters.ai_score_repository import SqlAlchemyAssetScoreRepository
 from src.adapters.asset_repository import SqlAlchemyAssetRepository
 from src.adapters.db import get_engine
 from src.adapters.email import FakeEmailSender
@@ -27,6 +28,7 @@ from src.adapters.password_reset_repository import SqlAlchemyPasswordResetTokenR
 from src.adapters.user_repository import SqlAlchemyUserRepository
 from src.api.cookies import ACCESS_TOKEN_COOKIE
 from src.config import Settings
+from src.domain.ai_score import AssetScoreRepository
 from src.domain.asset import AssetRepository
 from src.domain.email import EmailSender
 from src.domain.job_run import JobRunRepository
@@ -75,6 +77,15 @@ async def get_asset_repository(
     # get_user_repository is overridden (no DB container in this
     # environment).
     return SqlAlchemyAssetRepository(session)
+
+
+async def get_asset_score_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> AssetScoreRepository:
+    # Tests override this with conftest.FakeAssetScoreRepository, the same
+    # way get_asset_repository is overridden (no DB container in this
+    # environment).
+    return SqlAlchemyAssetScoreRepository(session)
 
 
 async def get_job_run_repository(
