@@ -3,6 +3,7 @@ import { Route, Routes } from "react-router";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { useMeQuery } from "./hooks/useMeQuery";
 import DashboardPage from "./pages/DashboardPage";
+import GlossaryPage from "./pages/GlossaryPage";
 import LoginPage from "./pages/LoginPage";
 
 function App() {
@@ -15,6 +16,7 @@ function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route element={<ProtectedRoute />}>
         <Route path="/" element={<DashboardPage />} />
+        <Route path="/glossary" element={<GlossaryPage />} />
       </Route>
     </Routes>
   );

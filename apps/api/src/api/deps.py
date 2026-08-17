@@ -23,6 +23,7 @@ from src.adapters.ai_score_repository import SqlAlchemyAssetScoreRepository
 from src.adapters.asset_repository import SqlAlchemyAssetRepository
 from src.adapters.db import get_engine
 from src.adapters.email import FakeEmailSender
+from src.adapters.glossary import GLOSSARY_PATH, load_glossary_terms
 from src.adapters.job_run_repository import SqlAlchemyJobRunRepository
 from src.adapters.password_reset_repository import SqlAlchemyPasswordResetTokenRepository
 from src.adapters.user_repository import SqlAlchemyUserRepository
@@ -32,6 +33,7 @@ from src.config import Settings
 from src.domain.ai_score import AssetScoreRepository
 from src.domain.asset import AssetRepository
 from src.domain.email import EmailSender
+from src.domain.glossary import GlossaryTerm
 from src.domain.job_run import JobRunRepository
 from src.domain.password_reset import PasswordResetTokenRepository
 from src.domain.tokens import TokenType, decode_token
@@ -114,6 +116,14 @@ async def get_password_reset_token_repository(
     # Tests override this with conftest.FakePasswordResetTokenRepository, the
     # same way get_user_repository is overridden (no DB container here).
     return SqlAlchemyPasswordResetTokenRepository(session)
+
+
+@lru_cache
+def get_glossary_terms() -> list[GlossaryTerm]:
+    # Static content (SoT A6.12 — git-versioned, code-reviewed, no DB
+    # table): parsed once per process, same singleton pattern as
+    # get_settings/get_db_engine above.
+    return load_glossary_terms(GLOSSARY_PATH)
 
 
 @lru_cache

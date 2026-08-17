@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 
 from src.api.v1.auth import router as auth_router
+from src.api.v1.glossary import router as glossary_router
 from src.api.v1.health import router as health_router
 from src.api.v1.scores import router as scores_router
 from src.api.v1.watchlist import router as watchlist_router
@@ -16,6 +17,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(scores_router)
     app.include_router(watchlist_router)
+    app.include_router(glossary_router)
     return app
 
 
