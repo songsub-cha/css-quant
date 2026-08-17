@@ -26,6 +26,7 @@ from src.adapters.email import FakeEmailSender
 from src.adapters.job_run_repository import SqlAlchemyJobRunRepository
 from src.adapters.password_reset_repository import SqlAlchemyPasswordResetTokenRepository
 from src.adapters.user_repository import SqlAlchemyUserRepository
+from src.adapters.watchlist_repository import SqlAlchemyWatchlistItemRepository
 from src.api.cookies import ACCESS_TOKEN_COOKIE
 from src.config import Settings
 from src.domain.ai_score import AssetScoreRepository
@@ -35,6 +36,7 @@ from src.domain.job_run import JobRunRepository
 from src.domain.password_reset import PasswordResetTokenRepository
 from src.domain.tokens import TokenType, decode_token
 from src.domain.user import User, UserRepository
+from src.domain.watchlist import WatchlistItemRepository
 from src.errors import ApiError, ErrorCode
 
 
@@ -95,6 +97,15 @@ async def get_job_run_repository(
     # get_asset_repository is overridden (no DB container in this
     # environment).
     return SqlAlchemyJobRunRepository(session)
+
+
+async def get_watchlist_item_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> WatchlistItemRepository:
+    # Tests override this with conftest.FakeWatchlistItemRepository, the same
+    # way get_asset_score_repository is overridden (no DB container in this
+    # environment).
+    return SqlAlchemyWatchlistItemRepository(session)
 
 
 async def get_password_reset_token_repository(
