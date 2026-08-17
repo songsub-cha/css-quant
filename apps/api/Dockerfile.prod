@@ -26,6 +26,7 @@ WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
 COPY src/ ./src/
+COPY glossary.ko.yaml ./glossary.ko.yaml
 COPY alembic/ ./alembic/
 COPY alembic.ini ./alembic.ini
 COPY docker-entrypoint.prod.sh ./docker-entrypoint.prod.sh

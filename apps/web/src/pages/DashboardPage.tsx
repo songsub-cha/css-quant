@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 
 import { authMeQueryKey } from "../hooks/useMeQuery";
 import { logout, type User } from "../lib/auth-api";
@@ -23,6 +23,9 @@ function DashboardPage() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-950 text-slate-100">
       <p className="text-lg">{user?.email}</p>
+      <Link to="/glossary" className="text-sm text-sky-400 hover:underline">
+        용어집
+      </Link>
       <button
         type="button"
         onClick={() => logoutMutation.mutate()}
