@@ -41,6 +41,7 @@ from src.domain.market_price import DailyPriceInfo, MarketPrice, PriceBar
 from src.domain.market_regime import MarketRegime, MarketRegimeInfo
 from src.domain.password_reset import PasswordResetToken
 from src.domain.user import User
+from src.domain.watchlist import WatchlistItem, WatchlistItemInfo, WatchlistKind
 
 os.environ.setdefault("COOKIE_SECURE", "false")
 os.environ.setdefault("SECRET_KEY", "test-only-secret-key-not-for-prod-use-000")
@@ -617,3 +618,53 @@ class FakePasswordResetTokenRepository:
             return None
         token.used_at = now
         return token.user_id
+
+
+class FakeWatchlistItemRepository:
+    """In-memory ``WatchlistItemRepository`` — same role as ``FakeAssetScoreRepository``.
+
+    Mirrors ``SqlAlchemyWatchlistItemRepository``'s ``(user_id, asset_id)``
+    in-place update semantics: re-upserting the same pair updates the
+    existing row's ``kind``/``note`` rather than appending a duplicate.
+    """
+
+    def __init__(self) -> None:
+        self.items: list[WatchlistItem] = []
+
+    def _find(self, *, user_id: UUID, asset_id: UUID) -> WatchlistItem | None:
+        return next(
+            (i for i in self.items if i.user_id == user_id and i.asset_id == asset_id),
+            None,
+        )
+
+    async def upsert(self, *, item: WatchlistItemInfo) -> WatchlistItem:
+        existing = self._find(user_id=item.user_id, asset_id=item.asset_id)
+        if existing is not None:
+            existing.kind = item.kind
+            existing.note = item.note
+            return existing
+
+        now = datetime.now(UTC)
+        row = WatchlistItem(
+            id=generate_uuid7(),
+            user_id=item.user_id,
+            asset_id=item.asset_id,
+            kind=item.kind,
+            note=item.note,
+            created_at=now,
+            updated_at=now,
+        )
+        self.items.append(row)
+        return row
+
+    async def remove(self, *, user_id: UUID, asset_id: UUID) -> None:
+        existing = self._find(user_id=user_id, asset_id=asset_id)
+        if existing is not None:
+            self.items.remove(existing)
+
+    async def list_by_user(
+        self, *, user_id: UUID, kind: WatchlistKind | None = None
+    ) -> list[WatchlistItem]:
+        return [
+            i for i in self.items if i.user_id == user_id and (kind is None or i.kind == kind)
+        ]
