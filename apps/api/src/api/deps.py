@@ -26,6 +26,7 @@ from src.adapters.email import FakeEmailSender
 from src.adapters.glossary import GLOSSARY_PATH, load_glossary_terms
 from src.adapters.job_run_repository import SqlAlchemyJobRunRepository
 from src.adapters.password_reset_repository import SqlAlchemyPasswordResetTokenRepository
+from src.adapters.strategy_repository import SqlAlchemyStrategyRepository
 from src.adapters.user_repository import SqlAlchemyUserRepository
 from src.adapters.watchlist_repository import SqlAlchemyWatchlistItemRepository
 from src.api.cookies import ACCESS_TOKEN_COOKIE
@@ -36,6 +37,7 @@ from src.domain.email import EmailSender
 from src.domain.glossary import GlossaryTerm
 from src.domain.job_run import JobRunRepository
 from src.domain.password_reset import PasswordResetTokenRepository
+from src.domain.strategy import StrategyRepository
 from src.domain.tokens import TokenType, decode_token
 from src.domain.user import User, UserRepository
 from src.domain.watchlist import WatchlistItemRepository
@@ -108,6 +110,15 @@ async def get_watchlist_item_repository(
     # way get_asset_score_repository is overridden (no DB container in this
     # environment).
     return SqlAlchemyWatchlistItemRepository(session)
+
+
+async def get_strategy_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> StrategyRepository:
+    # Tests override this with conftest.FakeStrategyRepository, the same
+    # way get_watchlist_item_repository is overridden (no DB container in
+    # this environment).
+    return SqlAlchemyStrategyRepository(session)
 
 
 async def get_password_reset_token_repository(

@@ -40,6 +40,7 @@ from src.domain.llm_explanation import LLMExplanationResult
 from src.domain.market_price import DailyPriceInfo, MarketPrice, PriceBar
 from src.domain.market_regime import MarketRegime, MarketRegimeInfo
 from src.domain.password_reset import PasswordResetToken
+from src.domain.strategy import Strategy, StrategyInfo, StrategyStatus
 from src.domain.user import User
 from src.domain.watchlist import WatchlistItem, WatchlistItemInfo, WatchlistKind
 
@@ -668,3 +669,61 @@ class FakeWatchlistItemRepository:
         return [
             i for i in self.items if i.user_id == user_id and (kind is None or i.kind == kind)
         ]
+
+
+class FakeStrategyRepository:
+    """In-memory ``StrategyRepository`` — same role as ``FakeWatchlistItemRepository``.
+
+    ``get_by_id``/``list_by_user`` mirror ``SqlAlchemyStrategyRepository``'s
+    ``deleted_at IS NULL`` filtering (SoT B4.10 soft delete) and user
+    scoping (IDOR guard). ``update``/``soft_delete`` mutate the same object
+    reference already in ``self.strategies`` — no session to commit against.
+    """
+
+    def __init__(self) -> None:
+        self.strategies: list[Strategy] = []
+
+    async def create(self, *, info: StrategyInfo) -> Strategy:
+        now = datetime.now(UTC)
+        row = Strategy(
+            id=generate_uuid7(),
+            user_id=info.user_id,
+            name=info.name,
+            description=info.description,
+            status=StrategyStatus.DRAFT,
+            execution_mode=info.execution_mode,
+            config=info.config,
+            version=1,
+            deleted_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        self.strategies.append(row)
+        return row
+
+    async def get_by_id(self, *, user_id: UUID, strategy_id: UUID) -> Strategy | None:
+        return next(
+            (
+                s
+                for s in self.strategies
+                if s.id == strategy_id and s.user_id == user_id and s.deleted_at is None
+            ),
+            None,
+        )
+
+    async def list_by_user(
+        self, *, user_id: UUID, status: StrategyStatus | None = None
+    ) -> list[Strategy]:
+        return [
+            s
+            for s in self.strategies
+            if s.user_id == user_id
+            and s.deleted_at is None
+            and (status is None or s.status == status)
+        ]
+
+    async def update(self, strategy: Strategy) -> Strategy:
+        return strategy
+
+    async def soft_delete(self, strategy: Strategy) -> None:
+        strategy.deleted_at = datetime.now(UTC)
