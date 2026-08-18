@@ -163,12 +163,37 @@ def test_list_items_filters_by_kind() -> None:
             note=None,
         )
 
-        all_items = await list_items(watchlist_repo, user_id=user_id, kind=None)
+        all_pairs = await list_items(watchlist_repo, asset_repo, user_id=user_id, kind=None)
         excluded_only = await list_items(
-            watchlist_repo, user_id=user_id, kind=WatchlistKind.EXCLUDE
+            watchlist_repo, asset_repo, user_id=user_id, kind=WatchlistKind.EXCLUDE
         )
 
-        assert {i.asset_id for i in all_items} == {watched.id, excluded.id}
-        assert [i.asset_id for i in excluded_only] == [excluded.id]
+        assert {item.asset_id for item, _asset in all_pairs} == {watched.id, excluded.id}
+        assert [item.asset_id for item, _asset in excluded_only] == [excluded.id]
+        assert {asset.ticker for _item, asset in all_pairs} == {"000001", "000002"}
+
+    asyncio.run(_run())
+
+
+def test_list_items_skips_rows_whose_asset_is_missing() -> None:
+    async def _run() -> None:
+        watchlist_repo = FakeWatchlistItemRepository()
+        asset_repo = FakeAssetRepository()
+        asset = await _seed_asset(asset_repo)
+        user_id = uuid4()
+        await add_or_update_item(
+            watchlist_repo,
+            asset_repo,
+            user_id=user_id,
+            asset_id=asset.id,
+            kind=WatchlistKind.WATCH,
+            note=None,
+        )
+        # Simulate the asset becoming unresolvable after the watchlist row was created.
+        asset_repo.assets.clear()
+
+        pairs = await list_items(watchlist_repo, asset_repo, user_id=user_id, kind=None)
+
+        assert pairs == []
 
     asyncio.run(_run())

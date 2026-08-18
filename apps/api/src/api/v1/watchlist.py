@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from src.api.deps import get_asset_repository, get_current_user, get_watchlist_item_repository
-from src.domain.asset import ASSET_ID_PREFIX, AssetRepository
+from src.domain.asset import ASSET_ID_PREFIX, Asset, AssetRepository
 from src.domain.ids import format_prefixed_id, parse_prefixed_id
 from src.domain.user import User
 from src.domain.watchlist import (
@@ -72,6 +72,30 @@ class WatchlistItemResponse(BaseModel):
         )
 
 
+class WatchlistListItemResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    asset_id: str
+    ticker: str
+    name: str
+    kind: WatchlistKind
+    note: str | None
+    created_at: datetime
+
+    @classmethod
+    def from_pair(cls, item: WatchlistItem, asset: Asset) -> WatchlistListItemResponse:
+        return cls(
+            id=format_prefixed_id(WATCHLIST_ITEM_ID_PREFIX, item.id),
+            asset_id=format_prefixed_id(ASSET_ID_PREFIX, item.asset_id),
+            ticker=asset.ticker,
+            name=asset.name,
+            kind=item.kind,
+            note=item.note,
+            created_at=item.created_at,
+        )
+
+
 def _parsed_path_asset_id(asset_id: str) -> UUID:
     try:
         return parse_prefixed_id(ASSET_ID_PREFIX, asset_id)
@@ -100,11 +124,12 @@ async def add_watchlist_item(
 @router.get("")
 async def list_watchlist_items(
     watchlist_repo: Annotated[WatchlistItemRepository, Depends(get_watchlist_item_repository)],
+    asset_repo: Annotated[AssetRepository, Depends(get_asset_repository)],
     current_user: Annotated[User, Depends(get_current_user)],
     kind: Annotated[WatchlistKind | None, Query()] = None,
-) -> list[WatchlistItemResponse]:
-    items = await list_items(watchlist_repo, user_id=current_user.id, kind=kind)
-    return [WatchlistItemResponse.from_item(item) for item in items]
+) -> list[WatchlistListItemResponse]:
+    pairs = await list_items(watchlist_repo, asset_repo, user_id=current_user.id, kind=kind)
+    return [WatchlistListItemResponse.from_pair(item, asset) for item, asset in pairs]
 
 
 @router.delete("/{asset_id}", status_code=204)

@@ -149,6 +149,8 @@ def test_add_then_get_then_delete_round_trip(
     items = list_response.json()
     assert len(items) == 1
     assert items[0]["asset_id"] == asset_id_str
+    assert items[0]["ticker"] == asset.ticker
+    assert items[0]["name"] == asset.name
 
     delete_response = client.delete(f"/api/v1/watchlist/{asset_id_str}", cookies=auth_cookies)
     assert delete_response.status_code == 204
@@ -207,6 +209,8 @@ def test_list_filters_by_kind_query_param(
     items = response.json()
     assert len(items) == 1
     assert items[0]["asset_id"] == f"ast_{excluded.id}"
+    assert items[0]["ticker"] == excluded.ticker
+    assert items[0]["name"] == excluded.name
 
 
 def test_delete_nonexistent_item_is_idempotent_204(

@@ -1,6 +1,7 @@
 import { http, HttpResponse } from "msw";
 
 import type { GlossaryTerm } from "../../lib/glossary-api";
+import type { WatchlistItem } from "../../lib/watchlist-api";
 
 export const FIXTURE_TERMS: GlossaryTerm[] = [
   {
@@ -41,7 +42,53 @@ export const FIXTURE_TERMS: GlossaryTerm[] = [
   },
 ];
 
+export const FIXTURE_WATCHLIST_ITEMS: readonly WatchlistItem[] = [
+  {
+    id: "wl_00000000-0000-7000-8000-000000000001",
+    asset_id: "ast_00000000-0000-7000-8000-000000000001",
+    ticker: "005930",
+    name: "삼성전자",
+    kind: "watch",
+    note: "관심 종목",
+    created_at: "2026-08-01T00:00:00Z",
+  },
+  {
+    id: "wl_00000000-0000-7000-8000-000000000002",
+    asset_id: "ast_00000000-0000-7000-8000-000000000002",
+    ticker: "000660",
+    name: "SK하이닉스",
+    kind: "exclude",
+    note: null,
+    created_at: "2026-08-02T00:00:00Z",
+  },
+];
+
+// Mutable copy so DELETE (unlike glossary's read-only fixtures) actually
+// removes a row that a following GET refetch stops returning.
+// resetWatchlistItems() restores it between tests.
+let watchlistItems: WatchlistItem[] = [...FIXTURE_WATCHLIST_ITEMS];
+
+export function resetWatchlistItems(): void {
+  watchlistItems = [...FIXTURE_WATCHLIST_ITEMS];
+}
+
 export const handlers = [
+  http.get("/api/v1/watchlist", ({ request }) => {
+    const url = new URL(request.url);
+    const kind = url.searchParams.get("kind");
+
+    let result = watchlistItems;
+    if (kind) {
+      result = result.filter((item) => item.kind === kind);
+    }
+    return HttpResponse.json(result);
+  }),
+
+  http.delete("/api/v1/watchlist/:assetId", ({ params }) => {
+    watchlistItems = watchlistItems.filter((item) => item.asset_id !== params.assetId);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
   http.get("/api/v1/glossary", ({ request }) => {
     const url = new URL(request.url);
     const category = url.searchParams.get("category");
