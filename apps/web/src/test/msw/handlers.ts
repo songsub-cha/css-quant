@@ -1,6 +1,7 @@
 import { http, HttpResponse } from "msw";
 
 import type { GlossaryTerm } from "../../lib/glossary-api";
+import type { Strategy, StrategyConfig, StrategyStatus, StrategyTemplate } from "../../lib/strategy-api";
 import type { WatchlistItem } from "../../lib/watchlist-api";
 
 export const FIXTURE_TERMS: GlossaryTerm[] = [
@@ -72,7 +73,299 @@ export function resetWatchlistItems(): void {
   watchlistItems = [...FIXTURE_WATCHLIST_ITEMS];
 }
 
+function emptyStrategyConfig(): StrategyConfig {
+  return {
+    universe: {
+      markets: [],
+      asset_types: [],
+      sectors: null,
+      market_cap_min: null,
+      avg_trading_value_min: null,
+    },
+    ai_filter: { min_score: null, top_n: null },
+    buy_rules: {
+      momentum_3m_min: null,
+      momentum_6m_min: null,
+      price_above_ma: null,
+      ma_alignment: null,
+      near_high_pct: null,
+      near_high_lookback: null,
+      volatility_max_percentile: null,
+    },
+    sell_rules: {
+      stop_loss_pct: null,
+      trailing_stop_pct: null,
+      price_below_ma: null,
+      ai_score_below: null,
+      momentum_below: null,
+      take_profit_pct: null,
+      holding_days_max: null,
+    },
+    position_sizing: {
+      max_weight_per_asset: null,
+      max_positions: null,
+      min_cash_weight: null,
+      max_participation_pct: "0.05",
+    },
+    rebalance: { frequency: null },
+  };
+}
+
+// SoT A7.1's four hardcoded backend templates (apps/api's strategy_template.py) — only
+// the shape matters here, not exact numeric parity, since the frontend just forwards
+// `template.config` verbatim on creation.
+export const FIXTURE_STRATEGY_TEMPLATES: readonly StrategyTemplate[] = [
+  {
+    key: "trend_following",
+    name: "추세추종",
+    description: "이동평균 정렬과 신고가 근접으로 상승 추세 종목을 매수합니다.",
+    config: {
+      ...emptyStrategyConfig(),
+      universe: {
+        markets: ["KR"],
+        asset_types: ["STOCK"],
+        sectors: null,
+        market_cap_min: "500000000000",
+        avg_trading_value_min: "3000000000",
+      },
+      ai_filter: { min_score: "70", top_n: 15 },
+      buy_rules: {
+        ...emptyStrategyConfig().buy_rules,
+        ma_alignment: [20, 60],
+        price_above_ma: 20,
+        near_high_pct: "5",
+        near_high_lookback: 60,
+      },
+      sell_rules: {
+        ...emptyStrategyConfig().sell_rules,
+        stop_loss_pct: "8",
+        trailing_stop_pct: "12",
+        price_below_ma: 50,
+      },
+      rebalance: { frequency: "WEEKLY" },
+    },
+  },
+  {
+    key: "ai_momentum",
+    name: "AI 모멘텀",
+    description: "AI 점수와 모멘텀을 함께 활용해 종목을 선별합니다.",
+    config: {
+      ...emptyStrategyConfig(),
+      universe: { markets: ["KR"], asset_types: ["STOCK"], sectors: null, market_cap_min: null, avg_trading_value_min: null },
+      ai_filter: { min_score: "75", top_n: 10 },
+      sell_rules: { ...emptyStrategyConfig().sell_rules, stop_loss_pct: "8", ai_score_below: "55" },
+      rebalance: { frequency: "MONTHLY" },
+    },
+  },
+  {
+    key: "low_volatility_etf",
+    name: "저변동성 ETF",
+    description: "변동성이 낮은 ETF만을 대상으로 기술적 조건만으로 운용합니다.",
+    config: {
+      ...emptyStrategyConfig(),
+      universe: { markets: ["KR"], asset_types: ["ETF"], sectors: null, market_cap_min: null, avg_trading_value_min: null },
+      buy_rules: { ...emptyStrategyConfig().buy_rules, volatility_max_percentile: "50", price_above_ma: 60 },
+      sell_rules: { ...emptyStrategyConfig().sell_rules, stop_loss_pct: "5", trailing_stop_pct: "8" },
+      rebalance: { frequency: "MONTHLY" },
+    },
+  },
+  {
+    key: "large_cap_quality",
+    name: "대형주 퀄리티",
+    description: "AI 점수가 높은 대형주를 장기 보유합니다.",
+    config: {
+      ...emptyStrategyConfig(),
+      universe: { markets: ["KR"], asset_types: ["STOCK"], sectors: null, market_cap_min: null, avg_trading_value_min: null },
+      ai_filter: { min_score: "70", top_n: null },
+      sell_rules: { ...emptyStrategyConfig().sell_rules, stop_loss_pct: "10", ai_score_below: "50" },
+      rebalance: { frequency: "QUARTERLY" },
+    },
+  },
+];
+
+export const FIXTURE_STRATEGIES: readonly Strategy[] = [
+  {
+    id: "str_00000000-0000-7000-8000-000000000001",
+    name: "내 추세추종 전략",
+    description: "장기 보유용 추세추종",
+    status: "draft",
+    execution_mode: "backtest",
+    config: { ...emptyStrategyConfig(), rebalance: { frequency: "WEEKLY" } },
+    version: 1,
+    created_at: "2026-08-10T00:00:00Z",
+    updated_at: "2026-08-10T00:00:00Z",
+  },
+  {
+    id: "str_00000000-0000-7000-8000-000000000002",
+    name: "AI 모멘텀 실전",
+    description: null,
+    status: "active",
+    execution_mode: "paper",
+    config: { ...emptyStrategyConfig(), ai_filter: { min_score: "75", top_n: 10 } },
+    version: 2,
+    created_at: "2026-08-11T00:00:00Z",
+    updated_at: "2026-08-12T00:00:00Z",
+  },
+];
+
+let strategies: Strategy[] = FIXTURE_STRATEGIES.map((s) => structuredClone(s));
+let strategySeq = strategies.length;
+
+export function resetStrategies(): void {
+  strategies = FIXTURE_STRATEGIES.map((s) => structuredClone(s));
+  strategySeq = strategies.length;
+}
+
+const STRATEGY_ALLOWED_TRANSITIONS: Record<StrategyStatus, ReadonlySet<StrategyStatus>> = {
+  draft: new Set<StrategyStatus>(["active", "archived"]),
+  active: new Set<StrategyStatus>(["paused", "archived"]),
+  paused: new Set<StrategyStatus>(["active", "archived"]),
+  archived: new Set<StrategyStatus>([]),
+};
+
+function strategyNotFoundResponse() {
+  return HttpResponse.json(
+    {
+      type: "about:blank",
+      title: "Strategy Not Found",
+      status: 404,
+      detail: "Strategy not found.",
+      code: "STRATEGY_NOT_FOUND",
+    },
+    { status: 404, headers: { "Content-Type": "application/problem+json" } },
+  );
+}
+
+function strategyInvalidTransitionResponse(detail: string) {
+  return HttpResponse.json(
+    {
+      type: "about:blank",
+      title: "Strategy Invalid Transition",
+      status: 409,
+      detail,
+      code: "STRATEGY_INVALID_TRANSITION",
+    },
+    { status: 409, headers: { "Content-Type": "application/problem+json" } },
+  );
+}
+
+function transitionStrategy(id: string, target: StrategyStatus) {
+  const strategy = strategies.find((s) => s.id === id);
+  if (!strategy) return strategyNotFoundResponse();
+  if (!STRATEGY_ALLOWED_TRANSITIONS[strategy.status].has(target)) {
+    return strategyInvalidTransitionResponse(
+      `Cannot transition strategy from ${strategy.status} to ${target}.`,
+    );
+  }
+  strategy.status = target;
+  strategy.updated_at = "2026-08-19T00:00:00Z";
+  return HttpResponse.json(strategy);
+}
+
 export const handlers = [
+  http.get("/api/v1/strategies/templates", () => {
+    return HttpResponse.json(FIXTURE_STRATEGY_TEMPLATES);
+  }),
+
+  http.get("/api/v1/strategies", ({ request }) => {
+    const url = new URL(request.url);
+    const status = url.searchParams.get("status");
+    let result = strategies;
+    if (status) {
+      result = result.filter((s) => s.status === status);
+    }
+    return HttpResponse.json(result);
+  }),
+
+  http.post("/api/v1/strategies", async ({ request }) => {
+    const body = (await request.json()) as {
+      name: string;
+      description?: string | null;
+      execution_mode: Strategy["execution_mode"];
+      config?: Partial<StrategyConfig>;
+    };
+    strategySeq += 1;
+    const now = "2026-08-19T00:00:00Z";
+    const created: Strategy = {
+      id: `str_00000000-0000-7000-8000-${String(strategySeq).padStart(12, "0")}`,
+      name: body.name,
+      description: body.description ?? null,
+      status: "draft",
+      execution_mode: body.execution_mode,
+      config: { ...emptyStrategyConfig(), ...body.config } as StrategyConfig,
+      version: 1,
+      created_at: now,
+      updated_at: now,
+    };
+    strategies = [...strategies, created];
+    return HttpResponse.json(created, { status: 201 });
+  }),
+
+  http.get("/api/v1/strategies/:id", ({ params }) => {
+    const strategy = strategies.find((s) => s.id === params.id);
+    if (!strategy) return strategyNotFoundResponse();
+    return HttpResponse.json(strategy);
+  }),
+
+  http.patch("/api/v1/strategies/:id", async ({ params, request }) => {
+    const strategy = strategies.find((s) => s.id === params.id);
+    if (!strategy) return strategyNotFoundResponse();
+    const body = (await request.json()) as {
+      name?: string;
+      description?: string | null;
+      execution_mode?: Strategy["execution_mode"];
+      config?: StrategyConfig;
+    };
+    if (body.name !== undefined) strategy.name = body.name;
+    if (body.description !== undefined) strategy.description = body.description;
+    if (body.execution_mode !== undefined) strategy.execution_mode = body.execution_mode;
+    if (body.config !== undefined) strategy.config = body.config;
+    strategy.updated_at = "2026-08-19T00:00:00Z";
+    return HttpResponse.json(strategy);
+  }),
+
+  http.delete("/api/v1/strategies/:id", ({ params }) => {
+    const strategy = strategies.find((s) => s.id === params.id);
+    if (!strategy) return strategyNotFoundResponse();
+    if (strategy.status === "active") {
+      return strategyInvalidTransitionResponse(
+        "Cannot delete an active strategy — pause or archive it first.",
+      );
+    }
+    strategies = strategies.filter((s) => s.id !== params.id);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post("/api/v1/strategies/:id/activate", ({ params }) =>
+    transitionStrategy(params.id as string, "active"),
+  ),
+
+  http.post("/api/v1/strategies/:id/pause", ({ params }) =>
+    transitionStrategy(params.id as string, "paused"),
+  ),
+
+  http.post("/api/v1/strategies/:id/archive", ({ params }) =>
+    transitionStrategy(params.id as string, "archived"),
+  ),
+
+  http.post("/api/v1/strategies/:id/clone", ({ params }) => {
+    const original = strategies.find((s) => s.id === params.id);
+    if (!original) return strategyNotFoundResponse();
+    strategySeq += 1;
+    const now = "2026-08-19T00:00:00Z";
+    const cloned: Strategy = {
+      ...structuredClone(original),
+      id: `str_00000000-0000-7000-8000-${String(strategySeq).padStart(12, "0")}`,
+      name: `${original.name} (복제)`,
+      status: "draft",
+      version: 1,
+      created_at: now,
+      updated_at: now,
+    };
+    strategies = [...strategies, cloned];
+    return HttpResponse.json(cloned, { status: 201 });
+  }),
+
   http.get("/api/v1/watchlist", ({ request }) => {
     const url = new URL(request.url);
     const kind = url.searchParams.get("kind");
