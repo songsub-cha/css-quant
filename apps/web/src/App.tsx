@@ -5,6 +5,8 @@ import { useMeQuery } from "./hooks/useMeQuery";
 import DashboardPage from "./pages/DashboardPage";
 import GlossaryPage from "./pages/GlossaryPage";
 import LoginPage from "./pages/LoginPage";
+import StrategyEditPage from "./pages/StrategyEditPage";
+import StrategyListPage from "./pages/StrategyListPage";
 import WatchlistPage from "./pages/WatchlistPage";
 
 function App() {
@@ -19,6 +21,8 @@ function App() {
         <Route path="/" element={<DashboardPage />} />
         <Route path="/glossary" element={<GlossaryPage />} />
         <Route path="/watchlist" element={<WatchlistPage />} />
+        <Route path="/strategies" element={<StrategyListPage />} />
+        <Route path="/strategies/:id" element={<StrategyEditPage />} />
       </Route>
     </Routes>
   );

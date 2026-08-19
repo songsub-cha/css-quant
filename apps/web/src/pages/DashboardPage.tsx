@@ -29,6 +29,9 @@ function DashboardPage() {
       <Link to="/watchlist" className="text-sm text-sky-400 hover:underline">
         관심/제외 목록
       </Link>
+      <Link to="/strategies" className="text-sm text-sky-400 hover:underline">
+        전략
+      </Link>
       <button
         type="button"
         onClick={() => logoutMutation.mutate()}
