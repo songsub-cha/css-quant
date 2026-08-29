@@ -1,6 +1,7 @@
 import { http, HttpResponse } from "msw";
 
 import type { GlossaryTerm } from "../../lib/glossary-api";
+import type { ScoreRankingItem } from "../../lib/scores-api";
 import type { Strategy, StrategyConfig, StrategyStatus, StrategyTemplate } from "../../lib/strategy-api";
 import type { WatchlistItem } from "../../lib/watchlist-api";
 
@@ -40,6 +41,41 @@ export const FIXTURE_TERMS: GlossaryTerm[] = [
     in_system: "리스크 엔진의 자동 정지 조건 중 하나예요.",
     direction: "lower_is_better",
     related: [],
+  },
+];
+
+export const FIXTURE_SCORE_DATE = "2026-08-19";
+
+export const FIXTURE_SCORES: readonly ScoreRankingItem[] = [
+  {
+    asset_id: "ast_00000000-0000-7000-8000-000000000001",
+    ticker: "005930",
+    name: "삼성전자",
+    regime: "NORMAL",
+    total_score: "82.50",
+    momentum_score: "78.00",
+    quality_score: "85.00",
+    value_score: "70.00",
+    liquidity_score: "95.00",
+    risk_score: "60.00",
+    summary: "모멘텀과 유동성이 강해요.",
+    positive_reasons: ["최근 3개월 상승세가 뚜렷해요.", "거래대금이 충분해요."],
+    risk_reasons: ["밸류에이션이 다소 높아요."],
+  },
+  {
+    asset_id: "ast_00000000-0000-7000-8000-000000000002",
+    ticker: "000660",
+    name: "SK하이닉스",
+    regime: "DEFENSIVE",
+    total_score: "55.00",
+    momentum_score: "40.00",
+    quality_score: "60.00",
+    value_score: "65.00",
+    liquidity_score: "80.00",
+    risk_score: "50.00",
+    summary: null,
+    positive_reasons: null,
+    risk_reasons: null,
   },
 ];
 
@@ -364,6 +400,10 @@ export const handlers = [
     };
     strategies = [...strategies, cloned];
     return HttpResponse.json(cloned, { status: 201 });
+  }),
+
+  http.get("/api/v1/scores", () => {
+    return HttpResponse.json({ score_date: FIXTURE_SCORE_DATE, scores: FIXTURE_SCORES });
   }),
 
   http.get("/api/v1/watchlist", ({ request }) => {
