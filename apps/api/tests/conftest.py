@@ -24,6 +24,7 @@ import os
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from src.domain.ai_score import AssetScore, AssetScoreInfo
@@ -36,8 +37,9 @@ from src.domain.financial_statement import (
 )
 from src.domain.ids import generate_uuid7
 from src.domain.index_price import IndexCode, IndexPrice, IndexPriceInfo
+from src.domain.job_run import JobRun, JobRunStatus
 from src.domain.llm_explanation import LLMExplanationResult
-from src.domain.market_price import DailyPriceInfo, MarketPrice, PriceBar
+from src.domain.market_price import DailyPriceInfo, MarketPrice, PriceBar, PriceCheckBar
 from src.domain.market_regime import MarketRegime, MarketRegimeInfo
 from src.domain.password_reset import PasswordResetToken
 from src.domain.strategy import Strategy, StrategyInfo, StrategyStatus
@@ -209,6 +211,13 @@ class FakeMarketPriceRepository:
         return {
             asset_id: sum(values, start=Decimal(0)) / len(values)
             for asset_id, values in by_asset.items()
+        }
+
+    async def get_price_checks(self, *, trade_date: date) -> dict[UUID, PriceCheckBar]:
+        return {
+            p.asset_id: PriceCheckBar(close=p.close, high=p.high, low=p.low)
+            for p in self.prices
+            if p.date == trade_date
         }
 
     async def get_price_history(
@@ -619,6 +628,44 @@ class FakePasswordResetTokenRepository:
             return None
         token.used_at = now
         return token.user_id
+
+
+class FakeJobRunRepository:
+    """In-memory ``JobRunRepository`` — same role as ``FakeUserRepository``.
+
+    Promoted from ``test_job_run_service.py``'s local ``_FakeJobRunRepository``
+    (its original docstring: "다른 테스트 모듈이 필요해지면 승격") now that
+    ``test_quality_gate_worker.py`` needs it too.
+    """
+
+    def __init__(self) -> None:
+        self.runs: list[JobRun] = []
+
+    async def start(self, *, job_name: str, run_date: date) -> JobRun:
+        row = JobRun(
+            id=generate_uuid7(),
+            job_name=job_name,
+            run_date=run_date,
+            status=JobRunStatus.RUNNING,
+            started_at=datetime.now(UTC),
+        )
+        self.runs.append(row)
+        return row
+
+    async def finish(
+        self,
+        job_run_id: UUID,
+        *,
+        status: JobRunStatus,
+        error: str | None = None,
+        stats: dict[str, Any] | None = None,
+    ) -> JobRun:
+        row = next(r for r in self.runs if r.id == job_run_id)
+        row.status = status
+        row.finished_at = datetime.now(UTC)
+        row.error = error
+        row.stats = stats
+        return row
 
 
 class FakeWatchlistItemRepository:

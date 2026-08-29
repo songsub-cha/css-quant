@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.market_price import DailyPriceInfo, MarketPrice, PriceBar
+from src.domain.market_price import DailyPriceInfo, MarketPrice, PriceBar, PriceCheckBar
 
 
 class SqlAlchemyMarketPriceRepository:
@@ -112,6 +112,17 @@ class SqlAlchemyMarketPriceRepository:
             .group_by(MarketPrice.asset_id)
         )
         return dict(result.tuples().all())
+
+    async def get_price_checks(self, *, trade_date: date) -> dict[UUID, PriceCheckBar]:
+        result = await self._session.execute(
+            select(
+                MarketPrice.asset_id, MarketPrice.close, MarketPrice.high, MarketPrice.low
+            ).where(MarketPrice.date == trade_date)
+        )
+        return {
+            asset_id: PriceCheckBar(close=close, high=high, low=low)
+            for asset_id, close, high, low in result.tuples().all()
+        }
 
     async def get_price_history(
         self, *, asset_ids: Sequence[UUID], as_of_date: date, window: int

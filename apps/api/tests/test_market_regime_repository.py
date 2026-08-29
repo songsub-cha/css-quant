@@ -188,20 +188,33 @@ def test_get_recent_returns_rows_strictly_before_end_date_most_recent_first(
     asyncio.run(_run())
 
 
-def test_get_by_date_returns_the_exact_day_row(
+def test_get_by_date_returns_the_matching_row(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async def _run() -> None:
         async with session_factory() as session:
             repo = SqlAlchemyMarketRegimeRepository(session)
-            await repo.upsert(regime=_regime(date(2026, 8, 5), RegimeStatus.DEFENSIVE))
+            regime_date = date(2026, 8, 5)
+            await repo.upsert(regime=_regime(regime_date, RegimeStatus.DEFENSIVE))
 
-            found = await repo.get_by_date(regime_date=date(2026, 8, 5))
-            missing = await repo.get_by_date(regime_date=date(2026, 8, 6))
+            row = await repo.get_by_date(regime_date=regime_date)
 
-            assert found is not None
-            assert found.regime_date == date(2026, 8, 5)
-            assert found.regime == RegimeStatus.DEFENSIVE
-            assert missing is None
+            assert row is not None
+            assert row.regime_date == regime_date
+            assert row.regime == RegimeStatus.DEFENSIVE
+
+    asyncio.run(_run())
+
+
+def test_get_by_date_returns_none_when_no_row_exists(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            repo = SqlAlchemyMarketRegimeRepository(session)
+
+            row = await repo.get_by_date(regime_date=date(2026, 8, 6))
+
+            assert row is None
 
     asyncio.run(_run())

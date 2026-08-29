@@ -42,7 +42,7 @@ from src.adapters.asset_repository import SqlAlchemyAssetRepository
 from src.adapters.db import get_engine
 from src.adapters.market_price_repository import SqlAlchemyMarketPriceRepository
 from src.domain.asset import Asset, AssetType, Exchange, Market
-from src.domain.market_price import DailyPriceInfo, MarketPrice
+from src.domain.market_price import DailyPriceInfo, MarketPrice, PriceCheckBar
 
 _API_ROOT = Path(__file__).resolve().parent.parent
 
@@ -90,22 +90,23 @@ def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
 
 
 @pytest.fixture(autouse=True)
-def _clean_tables(engine: AsyncEngine) -> None:
-    """Reset market_prices/assets before every test.
-
-    The container (and its data) is module-scoped for speed, but
-    ``get_market_caps``/``get_avg_trading_value`` are bulk queries that scan
-    every row for a given date — without this, a row an earlier test left
-    behind (even for an unrelated ticker) silently leaks into a later
-    test's "only this asset" / "excludes assets with no row" assertions.
+def _clean_tables(engine: AsyncEngine) -> Generator[None, None, None]:
+    """Truncate between tests — ``upsert``/``upsert_active`` each ``commit()``
+    (SqlAlchemyMarketPriceRepository, SqlAlchemyAssetRepository) against the
+    same module-scoped container, so without this a prior test's committed
+    rows leak into a later test's exact-equality assertions on the same
+    hardcoded dates (e.g. ``get_market_caps``/``get_price_history`` returning
+    extra keys left over from an earlier ``test_upsert_*``).
     """
+    yield
 
-    async def _clean() -> None:
+    async def _truncate() -> None:
         async with engine.begin() as conn:
-            await conn.execute(sa.delete(MarketPrice))
-            await conn.execute(sa.delete(Asset))
+            await conn.execute(
+                sa.text("TRUNCATE TABLE market_prices, assets RESTART IDENTITY CASCADE")
+            )
 
-    asyncio.run(_clean())
+    asyncio.run(_truncate())
 
 
 def _bar(trade_date: date, close: int = 71_200) -> DailyPriceInfo:
@@ -325,6 +326,45 @@ def test_get_avg_trading_value_excludes_asset_with_no_rows_in_window(
             averages = await repo.get_avg_trading_value(as_of_date=date(2026, 7, 28), window=20)
 
             assert averages == {}
+
+    asyncio.run(_run())
+
+
+def test_get_price_checks_returns_only_the_requested_trade_date(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            asset = await _seed_asset(session, "005930", "삼성전자")
+            repo = SqlAlchemyMarketPriceRepository(session)
+            target_date = date(2026, 7, 29)
+            other_date = date(2026, 7, 28)
+            await repo.upsert(asset_id=asset.id, bar=_bar(target_date, close=71_200))
+            await repo.upsert(asset_id=asset.id, bar=_bar(other_date, close=1))
+
+            checks = await repo.get_price_checks(trade_date=target_date)
+
+            assert checks == {
+                asset.id: PriceCheckBar(
+                    close=Decimal(71_200), high=Decimal(71_200), low=Decimal(71_200)
+                )
+            }
+
+    asyncio.run(_run())
+
+
+def test_get_price_checks_excludes_assets_with_no_row_that_day(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def _run() -> None:
+        async with session_factory() as session:
+            asset = await _seed_asset(session, "005930", "삼성전자")
+            repo = SqlAlchemyMarketPriceRepository(session)
+            await repo.upsert(asset_id=asset.id, bar=_bar(date(2026, 7, 28)))
+
+            checks = await repo.get_price_checks(trade_date=date(2026, 7, 29))
+
+            assert checks == {}
 
     asyncio.run(_run())
 
