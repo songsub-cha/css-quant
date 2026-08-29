@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import Term from "../components/Term";
 import { useScoresQuery } from "../hooks/useScoresQuery";
 import type { RegimeStatus, ScoreRankingItem } from "../lib/scores-api";
 
@@ -10,12 +11,12 @@ const REGIME_LABELS: Record<RegimeStatus, string> = {
 
 type SubScoreKey = "momentum_score" | "quality_score" | "value_score" | "liquidity_score" | "risk_score";
 
-const SUB_SCORE_LABELS: { key: SubScoreKey; label: string }[] = [
-  { key: "momentum_score", label: "모멘텀" },
-  { key: "quality_score", label: "퀄리티" },
-  { key: "value_score", label: "밸류" },
-  { key: "liquidity_score", label: "유동성" },
-  { key: "risk_score", label: "리스크" },
+const SUB_SCORE_LABELS: { key: SubScoreKey; termKey: string; label: string }[] = [
+  { key: "momentum_score", termKey: "momentum_factor", label: "모멘텀" },
+  { key: "quality_score", termKey: "quality_factor", label: "퀄리티" },
+  { key: "value_score", termKey: "value_factor", label: "밸류" },
+  { key: "liquidity_score", termKey: "liquidity_factor", label: "유동성" },
+  { key: "risk_score", termKey: "risk_factor", label: "리스크" },
 ];
 
 function ScoreReasons({ item }: { item: ScoreRankingItem }) {
@@ -28,15 +29,15 @@ function ScoreReasons({ item }: { item: ScoreRankingItem }) {
       {item.summary && <p>{item.summary}</p>}
       {item.positive_reasons && item.positive_reasons.length > 0 && (
         <ul className="list-inside list-disc text-sky-300">
-          {item.positive_reasons.map((reason) => (
-            <li key={reason}>{reason}</li>
+          {item.positive_reasons.map((reason, index) => (
+            <li key={`${index}-${reason}`}>{reason}</li>
           ))}
         </ul>
       )}
       {item.risk_reasons && item.risk_reasons.length > 0 && (
         <ul className="list-inside list-disc text-amber-300">
-          {item.risk_reasons.map((reason) => (
-            <li key={reason}>{reason}</li>
+          {item.risk_reasons.map((reason, index) => (
+            <li key={`${index}-${reason}`}>{reason}</li>
           ))}
         </ul>
       )}
@@ -64,7 +65,11 @@ function RankingPage() {
           </p>
         )}
 
-        {!isLoading && !isError && data && data.score_date !== null && (
+        {!isLoading && !isError && data && data.score_date !== null && data.scores.length === 0 && (
+          <p className="text-sm text-slate-400">점수는 계산됐지만 표시할 종목이 없어요.</p>
+        )}
+
+        {!isLoading && !isError && data && data.score_date !== null && data.scores.length > 0 && (
           <ul className="space-y-3">
             {data.scores.map((item) => {
               const isExpanded = expandedId === item.asset_id;
@@ -73,32 +78,40 @@ function RankingPage() {
                   key={item.asset_id}
                   className="rounded border border-slate-800 bg-slate-900/50 p-4"
                 >
-                  <button
-                    type="button"
-                    onClick={() => setExpandedId(isExpanded ? null : item.asset_id)}
-                    className="flex w-full items-center justify-between text-left"
-                  >
-                    <div>
+                  <div className="flex w-full items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedId(isExpanded ? null : item.asset_id)}
+                      aria-expanded={isExpanded}
+                      className="flex-1 text-left"
+                    >
                       <p className="font-medium">
                         {item.name} <span className="text-slate-400">({item.ticker})</span>
                       </p>
+                    </button>
+
+                    <Term termKey="market_regime">
                       <span
-                        className={`mt-1 inline-block text-sm ${
+                        className={`text-sm ${
                           item.regime === "NORMAL" ? "text-sky-400" : "text-amber-400"
                         }`}
                       >
                         {REGIME_LABELS[item.regime]}
                       </span>
-                    </div>
-                    <span className="text-lg font-semibold">{item.total_score}</span>
-                  </button>
+                    </Term>
+                    <Term termKey="total_score">
+                      <span className="text-lg font-semibold">{item.total_score}</span>
+                    </Term>
+                  </div>
 
                   {isExpanded && (
                     <div className="mt-4 space-y-3 border-t border-slate-800 pt-4">
                       <dl className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                        {SUB_SCORE_LABELS.map(({ key, label }) => (
+                        {SUB_SCORE_LABELS.map(({ key, termKey, label }) => (
                           <div key={key}>
-                            <dt className="text-xs text-slate-400">{label}</dt>
+                            <dt className="text-xs text-slate-400">
+                              <Term termKey={termKey}>{label}</Term>
+                            </dt>
                             <dd className="text-sm">{item[key]}</dd>
                           </div>
                         ))}

@@ -5,6 +5,8 @@ import { http, HttpResponse } from "msw";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 
+import type { ScoreRankingItem } from "../lib/scores-api";
+import { FIXTURE_SCORE_DATE } from "../test/msw/handlers";
 import { server } from "../test/msw/server";
 import RankingPage from "./RankingPage";
 
@@ -19,16 +21,96 @@ function renderPage() {
   );
 }
 
+// Arrival order (Alpha, Beta, Gamma) differs from both the ascending
+// (Alpha, Gamma, Beta) and descending (Beta, Gamma, Alpha) total_score
+// orderings, so rendering any re-sorted order is distinguishable from
+// rendering arrival order — unlike the old fixture, which was already in
+// descending order and couldn't tell "no re-sort" apart from "desc re-sort".
+const SHUFFLED_SCORES: ScoreRankingItem[] = [
+  {
+    asset_id: "ast_00000000-0000-7000-8000-000000000101",
+    ticker: "AAA",
+    name: "Alpha",
+    regime: "NORMAL",
+    total_score: "50.00",
+    momentum_score: "50.00",
+    quality_score: "50.00",
+    value_score: "50.00",
+    liquidity_score: "50.00",
+    risk_score: "50.00",
+    summary: null,
+    positive_reasons: null,
+    risk_reasons: null,
+  },
+  {
+    asset_id: "ast_00000000-0000-7000-8000-000000000102",
+    ticker: "BBB",
+    name: "Beta",
+    regime: "NORMAL",
+    total_score: "90.00",
+    momentum_score: "90.00",
+    quality_score: "90.00",
+    value_score: "90.00",
+    liquidity_score: "90.00",
+    risk_score: "90.00",
+    summary: null,
+    positive_reasons: null,
+    risk_reasons: null,
+  },
+  {
+    asset_id: "ast_00000000-0000-7000-8000-000000000103",
+    ticker: "CCC",
+    name: "Gamma",
+    regime: "DEFENSIVE",
+    total_score: "70.00",
+    momentum_score: "70.00",
+    quality_score: "70.00",
+    value_score: "70.00",
+    liquidity_score: "70.00",
+    risk_score: "70.00",
+    summary: null,
+    positive_reasons: null,
+    risk_reasons: null,
+  },
+];
+
 describe("RankingPage", () => {
   it("renders the scores response in the order it arrives, without re-sorting", async () => {
+    server.use(
+      http.get("/api/v1/scores", () =>
+        HttpResponse.json({ score_date: FIXTURE_SCORE_DATE, scores: SHUFFLED_SCORES }),
+      ),
+    );
     renderPage();
 
-    const rows = await screen.findAllByRole("button");
-    expect(within(rows[0]).getByText(/삼성전자/)).toBeInTheDocument();
-    expect(within(rows[0]).getByText("82.50")).toBeInTheDocument();
-    expect(within(rows[0]).getByText("정상")).toBeInTheDocument();
-    expect(within(rows[1]).getByText(/SK하이닉스/)).toBeInTheDocument();
-    expect(within(rows[1]).getByText("방어")).toBeInTheDocument();
+    const rows = await screen.findAllByRole("listitem");
+    expect(within(rows[0]).getByText(/Alpha/)).toBeInTheDocument();
+    expect(within(rows[1]).getByText(/Beta/)).toBeInTheDocument();
+    expect(within(rows[2]).getByText(/Gamma/)).toBeInTheDocument();
+  });
+
+  it("wires glossary term help for sub-score labels, total score, and regime badge", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "82.50" }));
+    expect(await screen.findByText("AI 종합 점수")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "정상" }));
+    expect(await screen.findByText("시장 레짐")).toBeInTheDocument();
+
+    await user.click((await screen.findByText(/삼성전자/)).closest("button")!);
+    await user.click(screen.getByRole("button", { name: "모멘텀" }));
+    expect(await screen.findByText("모멘텀 팩터")).toBeInTheDocument();
+  });
+
+  it("shows an empty-state message when score_date is set but there are no scores", async () => {
+    server.use(
+      http.get("/api/v1/scores", () => HttpResponse.json({ score_date: FIXTURE_SCORE_DATE, scores: [] })),
+    );
+    renderPage();
+
+    expect(await screen.findByText("점수는 계산됐지만 표시할 종목이 없어요.")).toBeInTheDocument();
   });
 
   it("expands a row to show sub-scores and score reasons", async () => {
