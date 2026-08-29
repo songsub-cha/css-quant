@@ -27,6 +27,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+from src.domain.ai_score import AssetScore, AssetScoreInfo
 from src.domain.asset import Asset, AssetType, Exchange, Market
 from src.domain.asset_factor import AssetFactor, AssetFactorInfo
 from src.domain.financial_statement import (
@@ -37,10 +38,13 @@ from src.domain.financial_statement import (
 from src.domain.ids import generate_uuid7
 from src.domain.index_price import IndexCode, IndexPrice, IndexPriceInfo
 from src.domain.job_run import JobRun, JobRunStatus
+from src.domain.llm_explanation import LLMExplanationResult
 from src.domain.market_price import DailyPriceInfo, MarketPrice, PriceBar, PriceCheckBar
 from src.domain.market_regime import MarketRegime, MarketRegimeInfo
 from src.domain.password_reset import PasswordResetToken
+from src.domain.strategy import Strategy, StrategyInfo, StrategyStatus
 from src.domain.user import User
+from src.domain.watchlist import WatchlistItem, WatchlistItemInfo, WatchlistKind
 
 os.environ.setdefault("COOKIE_SECURE", "false")
 os.environ.setdefault("SECRET_KEY", "test-only-secret-key-not-for-prod-use-000")
@@ -107,6 +111,10 @@ class FakeAssetRepository:
             for a in self.assets
             if a.market == market and a.asset_type == asset_type and a.is_active
         ]
+
+    async def list_by_ids(self, asset_ids: Sequence[UUID]) -> list[Asset]:
+        asset_id_set = set(asset_ids)
+        return [a for a in self.assets if a.id in asset_id_set]
 
     async def upsert_active(
         self,
@@ -503,6 +511,89 @@ class FakeAssetFactorRepository:
         self.factors.append(row)
         return row
 
+    async def get_by_factor_date(self, *, factor_date: date) -> list[AssetFactor]:
+        return [f for f in self.factors if f.factor_date == factor_date]
+
+
+class FakeAssetScoreRepository:
+    """In-memory ``AssetScoreRepository`` — same role as ``FakeAssetFactorRepository``.
+
+    Mirrors ``SqlAlchemyAssetScoreRepository``'s ``(asset_id, score_date)``
+    in-place update semantics: re-upserting the same key updates the
+    existing row rather than appending a duplicate.
+    """
+
+    def __init__(self) -> None:
+        self.scores: list[AssetScore] = []
+
+    async def upsert(self, *, score: AssetScoreInfo) -> AssetScore:
+        existing = next(
+            (
+                s
+                for s in self.scores
+                if s.asset_id == score.asset_id and s.score_date == score.score_date
+            ),
+            None,
+        )
+        if existing is not None:
+            existing.regime = score.regime
+            existing.total_score = score.total_score
+            existing.momentum_score = score.momentum_score
+            existing.quality_score = score.quality_score
+            existing.value_score = score.value_score
+            existing.liquidity_score = score.liquidity_score
+            existing.risk_score = score.risk_score
+            existing.summary = score.summary
+            existing.positive_reasons = score.positive_reasons
+            existing.risk_reasons = score.risk_reasons
+            existing.llm_model = score.llm_model
+            existing.llm_generated_at = score.llm_generated_at
+            return existing
+
+        row = AssetScore(
+            asset_id=score.asset_id,
+            score_date=score.score_date,
+            regime=score.regime,
+            total_score=score.total_score,
+            momentum_score=score.momentum_score,
+            quality_score=score.quality_score,
+            value_score=score.value_score,
+            liquidity_score=score.liquidity_score,
+            risk_score=score.risk_score,
+            summary=score.summary,
+            positive_reasons=score.positive_reasons,
+            risk_reasons=score.risk_reasons,
+            llm_model=score.llm_model,
+            llm_generated_at=score.llm_generated_at,
+        )
+        self.scores.append(row)
+        return row
+
+    async def get_by_date(self, *, score_date: date) -> list[AssetScore]:
+        return [s for s in self.scores if s.score_date == score_date]
+
+    async def get_latest_score_date(self) -> date | None:
+        dates = {s.score_date for s in self.scores}
+        return max(dates) if dates else None
+
+
+class FakeLLMExplanationCache:
+    """In-memory ``LLMExplanationCache`` — same role as ``FakeIndexPriceRepository``.
+
+    Ignores ``ttl_seconds`` (no expiry) — tests only assert hit/miss
+    behavior, never TTL expiry (that is ``RedisLLMExplanationCache``'s to
+    exercise against a real Redis container).
+    """
+
+    def __init__(self) -> None:
+        self._entries: dict[str, LLMExplanationResult] = {}
+
+    async def get(self, key: str) -> LLMExplanationResult | None:
+        return self._entries.get(key)
+
+    async def set(self, key: str, result: LLMExplanationResult, *, ttl_seconds: int) -> None:
+        self._entries[key] = result
+
 
 class FakePasswordResetTokenRepository:
     """In-memory ``PasswordResetTokenRepository`` — same role as ``FakeUserRepository``."""
@@ -575,3 +666,111 @@ class FakeJobRunRepository:
         row.error = error
         row.stats = stats
         return row
+
+
+class FakeWatchlistItemRepository:
+    """In-memory ``WatchlistItemRepository`` — same role as ``FakeAssetScoreRepository``.
+
+    Mirrors ``SqlAlchemyWatchlistItemRepository``'s ``(user_id, asset_id)``
+    in-place update semantics: re-upserting the same pair updates the
+    existing row's ``kind``/``note`` rather than appending a duplicate.
+    """
+
+    def __init__(self) -> None:
+        self.items: list[WatchlistItem] = []
+
+    def _find(self, *, user_id: UUID, asset_id: UUID) -> WatchlistItem | None:
+        return next(
+            (i for i in self.items if i.user_id == user_id and i.asset_id == asset_id),
+            None,
+        )
+
+    async def upsert(self, *, item: WatchlistItemInfo) -> WatchlistItem:
+        existing = self._find(user_id=item.user_id, asset_id=item.asset_id)
+        if existing is not None:
+            existing.kind = item.kind
+            existing.note = item.note
+            return existing
+
+        now = datetime.now(UTC)
+        row = WatchlistItem(
+            id=generate_uuid7(),
+            user_id=item.user_id,
+            asset_id=item.asset_id,
+            kind=item.kind,
+            note=item.note,
+            created_at=now,
+            updated_at=now,
+        )
+        self.items.append(row)
+        return row
+
+    async def remove(self, *, user_id: UUID, asset_id: UUID) -> None:
+        existing = self._find(user_id=user_id, asset_id=asset_id)
+        if existing is not None:
+            self.items.remove(existing)
+
+    async def list_by_user(
+        self, *, user_id: UUID, kind: WatchlistKind | None = None
+    ) -> list[WatchlistItem]:
+        return [
+            i for i in self.items if i.user_id == user_id and (kind is None or i.kind == kind)
+        ]
+
+
+class FakeStrategyRepository:
+    """In-memory ``StrategyRepository`` — same role as ``FakeWatchlistItemRepository``.
+
+    ``get_by_id``/``list_by_user`` mirror ``SqlAlchemyStrategyRepository``'s
+    ``deleted_at IS NULL`` filtering (SoT B4.10 soft delete) and user
+    scoping (IDOR guard). ``update``/``soft_delete`` mutate the same object
+    reference already in ``self.strategies`` — no session to commit against.
+    """
+
+    def __init__(self) -> None:
+        self.strategies: list[Strategy] = []
+
+    async def create(self, *, info: StrategyInfo) -> Strategy:
+        now = datetime.now(UTC)
+        row = Strategy(
+            id=generate_uuid7(),
+            user_id=info.user_id,
+            name=info.name,
+            description=info.description,
+            status=StrategyStatus.DRAFT,
+            execution_mode=info.execution_mode,
+            config=info.config,
+            version=1,
+            deleted_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        self.strategies.append(row)
+        return row
+
+    async def get_by_id(self, *, user_id: UUID, strategy_id: UUID) -> Strategy | None:
+        return next(
+            (
+                s
+                for s in self.strategies
+                if s.id == strategy_id and s.user_id == user_id and s.deleted_at is None
+            ),
+            None,
+        )
+
+    async def list_by_user(
+        self, *, user_id: UUID, status: StrategyStatus | None = None
+    ) -> list[Strategy]:
+        return [
+            s
+            for s in self.strategies
+            if s.user_id == user_id
+            and s.deleted_at is None
+            and (status is None or s.status == status)
+        ]
+
+    async def update(self, strategy: Strategy) -> Strategy:
+        return strategy
+
+    async def soft_delete(self, strategy: Strategy) -> None:
+        strategy.deleted_at = datetime.now(UTC)

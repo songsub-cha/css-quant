@@ -7,6 +7,9 @@ structure as ``SqlAlchemyUserRepository``.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from uuid import UUID
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +37,12 @@ class SqlAlchemyAssetRepository:
                 Asset.is_active.is_(True),
             )
         )
+        return list(result.scalars().all())
+
+    async def list_by_ids(self, asset_ids: Sequence[UUID]) -> list[Asset]:
+        if not asset_ids:
+            return []
+        result = await self._session.execute(select(Asset).where(Asset.id.in_(asset_ids)))
         return list(result.scalars().all())
 
     async def upsert_active(

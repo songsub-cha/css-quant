@@ -96,12 +96,15 @@ class MarketRegimeRepository(Protocol):
         ...
 
     async def get_by_date(self, *, regime_date: date) -> MarketRegime | None:
-        """Return the ``regime_date`` row, or ``None`` if it doesn't exist.
+        """Return the row for exactly ``regime_date``, or ``None`` if not yet recorded.
 
-        Backs the A6.4 quality gate's indicator check (SoT A6.4): a row's
-        mere existence for today is the evidence that
-        ``detect_market_regime`` could compute the 200-day KOSPI MA (it
-        raises ``InsufficientPriceHistoryError`` and never upserts otherwise).
+        Unlike ``get_recent``'s strict ``<``, this looks up *today's own* row —
+        ``src.workers.score_calculation`` needs the regime already in effect
+        for the day it's scoring, not yesterday's. It also backs the A6.4
+        quality gate's indicator check: a row's mere existence for today is
+        the evidence that ``detect_market_regime`` could compute the 200-day
+        KOSPI MA (it raises ``InsufficientPriceHistoryError`` and never
+        upserts otherwise).
         """
         ...
 

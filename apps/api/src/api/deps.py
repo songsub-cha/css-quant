@@ -19,20 +19,28 @@ from typing import Annotated
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from src.adapters.ai_score_repository import SqlAlchemyAssetScoreRepository
 from src.adapters.asset_repository import SqlAlchemyAssetRepository
 from src.adapters.db import get_engine
 from src.adapters.email import FakeEmailSender
+from src.adapters.glossary import GLOSSARY_PATH, load_glossary_terms
 from src.adapters.job_run_repository import SqlAlchemyJobRunRepository
 from src.adapters.password_reset_repository import SqlAlchemyPasswordResetTokenRepository
+from src.adapters.strategy_repository import SqlAlchemyStrategyRepository
 from src.adapters.user_repository import SqlAlchemyUserRepository
+from src.adapters.watchlist_repository import SqlAlchemyWatchlistItemRepository
 from src.api.cookies import ACCESS_TOKEN_COOKIE
 from src.config import Settings
+from src.domain.ai_score import AssetScoreRepository
 from src.domain.asset import AssetRepository
 from src.domain.email import EmailSender
+from src.domain.glossary import GlossaryTerm
 from src.domain.job_run import JobRunRepository
 from src.domain.password_reset import PasswordResetTokenRepository
+from src.domain.strategy import StrategyRepository
 from src.domain.tokens import TokenType, decode_token
 from src.domain.user import User, UserRepository
+from src.domain.watchlist import WatchlistItemRepository
 from src.errors import ApiError, ErrorCode
 
 
@@ -77,6 +85,15 @@ async def get_asset_repository(
     return SqlAlchemyAssetRepository(session)
 
 
+async def get_asset_score_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> AssetScoreRepository:
+    # Tests override this with conftest.FakeAssetScoreRepository, the same
+    # way get_asset_repository is overridden (no DB container in this
+    # environment).
+    return SqlAlchemyAssetScoreRepository(session)
+
+
 async def get_job_run_repository(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> JobRunRepository:
@@ -86,12 +103,38 @@ async def get_job_run_repository(
     return SqlAlchemyJobRunRepository(session)
 
 
+async def get_watchlist_item_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> WatchlistItemRepository:
+    # Tests override this with conftest.FakeWatchlistItemRepository, the same
+    # way get_asset_score_repository is overridden (no DB container in this
+    # environment).
+    return SqlAlchemyWatchlistItemRepository(session)
+
+
+async def get_strategy_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> StrategyRepository:
+    # Tests override this with conftest.FakeStrategyRepository, the same
+    # way get_watchlist_item_repository is overridden (no DB container in
+    # this environment).
+    return SqlAlchemyStrategyRepository(session)
+
+
 async def get_password_reset_token_repository(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> PasswordResetTokenRepository:
     # Tests override this with conftest.FakePasswordResetTokenRepository, the
     # same way get_user_repository is overridden (no DB container here).
     return SqlAlchemyPasswordResetTokenRepository(session)
+
+
+@lru_cache
+def get_glossary_terms() -> list[GlossaryTerm]:
+    # Static content (SoT A6.12 — git-versioned, code-reviewed, no DB
+    # table): parsed once per process, same singleton pattern as
+    # get_settings/get_db_engine above.
+    return load_glossary_terms(GLOSSARY_PATH)
 
 
 @lru_cache

@@ -195,12 +195,13 @@ def test_get_by_date_returns_the_matching_row(
         async with session_factory() as session:
             repo = SqlAlchemyMarketRegimeRepository(session)
             regime_date = date(2026, 8, 5)
-            await repo.upsert(regime=_regime(regime_date))
+            await repo.upsert(regime=_regime(regime_date, RegimeStatus.DEFENSIVE))
 
             row = await repo.get_by_date(regime_date=regime_date)
 
             assert row is not None
             assert row.regime_date == regime_date
+            assert row.regime == RegimeStatus.DEFENSIVE
 
     asyncio.run(_run())
 
